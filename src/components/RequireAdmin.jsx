@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
 function FullScreenSpinner() {
@@ -14,6 +14,12 @@ function FullScreenSpinner() {
 
 export default function RequireAdmin({ children }) {
   const { user, isAdmin, loading, adminError } = useAuth()
+  const location = useLocation()
+
+  // Remember where they were headed so signing in lands them there — an
+  // interviewer opening a room link on a fresh phone should end up in that room,
+  // not on the dispatcher board.
+  const from = `${location.pathname}${location.search}`
 
   if (loading) return <FullScreenSpinner />
   if (user && isAdmin) return children
@@ -33,6 +39,7 @@ export default function RequireAdmin({ children }) {
           </p>
           <Link
             to="/login"
+            state={{ from }}
             className="mt-6 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:brightness-110"
           >
             Back to sign in
@@ -49,6 +56,7 @@ export default function RequireAdmin({ children }) {
         <p className="mt-2 text-sm text-muted-foreground">Sign in to open the dispatch dashboard.</p>
         <Link
           to="/login"
+          state={{ from }}
           className="mt-6 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:brightness-110"
         >
           Sign in

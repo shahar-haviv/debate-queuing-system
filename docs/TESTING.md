@@ -6,15 +6,15 @@ just to make a number look better.
 
 | Layer | Runner | Files | What it can prove | Speed |
 | --- | --- | --- | --- | --- |
-| **Logic** | Vitest | `tests/unit/*.test.js` | Sorting, lateness, timers, the Auto-Assign decision, conflict matching (including over a panel), CSV parsing | ~1s |
-| **Components** | Vitest + React Testing Library | `tests/unit/*.test.jsx` | The three lists, the card's locked state, the blocked room options, the room's interviewer panel, the public page's payload | ~7s |
-| **Database** | plain Node | `tests/db/*.test.mjs` | Rules 1–7 (triggers), and exactly what an anonymous visitor can read and write | ~15s |
-| **End-to-end** | Playwright | `tests/e2e/*.spec.js` | The real UI against the real board, in a real browser | ~40s |
+| **Logic** | Vitest | `tests/unit/*.test.js` | Sorting, lateness, timers, the Auto-Assign decision, conflict matching (including over a panel), CSV parsing, the in-room queue order, and the rubric's own wording and validation | ~1s |
+| **Components** | Vitest + React Testing Library | `tests/unit/*.test.jsx` | The three lists, the card's locked state, the blocked room options, the room's interviewer panel, the public page's payload, and the in-room rubric from blank form to filed evaluation | ~17s |
+| **Database** | plain Node | `tests/db/*.test.mjs` | Rules 1–7 (triggers), and exactly what an anonymous visitor can read and write — including the evaluation table they cannot touch at all | ~15s |
+| **End-to-end** | Playwright | `tests/e2e/*.spec.js` | The real UI against the real board, in a real browser | ~60s |
 
 ```bash
-npm test          # logic + components    (237 tests)
-npm run test:db   # live database          (75 assertions)
-npm run test:e2e  # browser                (16 tests)
+npm test          # logic + components    (295 tests, ~18s)
+npm run test:db   # live database          (86 assertions)
+npm run test:e2e  # browser                (22 tests; 2 opt-in, 3 data-gated)
 npm run test:all  # all three
 ```
 
@@ -125,6 +125,55 @@ is by arrival.
 - A blank column can never shadow a populated one, and a BOM on the first header
   does not break the mapping.
 
+### `rooms.test.js` — who is in a room, and who is first
+
+This ordering decides **whose evaluation is open on screen**, so it is worth
+pinning down precisely:
+
+- The **in-room clock wins** where it exists; a row that predates the column falls
+  back to its arrival stamp, and whichever stamp is earlier is the longer wait.
+- **An unknown clock sorts last, never first** — a row with neither stamp must
+  never jump ahead of a known wait.
+- **The answer does not depend on the order the rows arrive in**: the same board
+  fed forwards and backwards produces the same queue, and a genuine tie is broken
+  by name so "the first one" is stable.
+- A missing room id, a missing board and a room with nobody in it all yield an
+  empty queue rather than throwing; `longestWaitingOccupant` answers `null`, not
+  `undefined`, so the page can test it directly.
+
+### `evaluation.test.js` — the rubric's own wording
+
+The Hebrew in `evaluation.js` is the club's questionnaire, not UI copy: if a word
+changes there, nobody notices until an interviewer reads a subtly different
+question mid-interview. So these assertions are the **literal strings, in order**,
+rather than regexes:
+
+- All **22 questions**, in the order they are asked, exactly as written.
+- The interviewer's notes on the questions that carry one — the subtexts under
+  *years remaining*, *Monday conflicts*, *free time*, the follow-up prompts, the
+  optional-loss caveat, the English-level reassurance and the closing free text.
+- The part-2 and part-4 headers, verbatim, with parts 1 and 3 asserted to have no
+  intro of their own.
+- The 1 and 5 anchor labels for all three ratings.
+- **Which twelve questions are mandatory** — asserted as an exact list, so moving
+  a field between mandatory and optional is a deliberate edit that shows up in
+  review, plus the three that are deliberately optional (`gender`, `age`, and the
+  competitiveness rating the club marked as not required).
+- **The types**: text, number, textarea and 1–5 scale for each question, matching
+  what was specified field by field.
+- Prefill: the name and serial come from the board; *"מי מראיין?"* is filled
+  **only** when the room names exactly one interviewer, and never invented
+  otherwise.
+- Validation: a complete form passes; missing mandatory fields are reported in the
+  form's own order with the label attached; whitespace counts as blank; a rating
+  outside 1–5 or a non-numeric age is refused, while `1.5` years is a real answer
+  and a blank optional field is not an error.
+- The saved `scores` object: numbers as numbers, text trimmed, **every key
+  present** with `null` for blanks, and a round trip back into the form for
+  editing that does not turn `null` into the string `"null"`.
+- The recap rows: every question with its answer, a skipped one flagged as blank,
+  and a rating of **1** treated as an answer rather than as absent.
+
 ---
 
 ## 2. Components — `tests/unit/*.test.jsx`
@@ -216,7 +265,9 @@ clock is faked so the boundary is an assertion, not a race.
   tap-to-call link per number that exists and no link for a member without one —
   or the `+ Add interviewer` affordance when the panel is empty.
 - Retyping a room through the select reports `{ room_type }` upward; an empty
-  board explains itself.
+  board explains itself. Each card also carries its own **link into the room view**
+  (`Open interview room A206`), named for the room so a screen-reader user can
+  tell two of them apart.
 
 ### `autoAssignUi.test.jsx` — the wand, through the real button
 
@@ -316,6 +367,42 @@ asserted separately: what it **asks the API for**, and what it **renders**.
 - The queue / proceed / all-done / not-found states, the Pending–Done badges, and
   the absence of a logo, debug panel and admin links.
 
+### `roomEvaluation.test.jsx` — the in-room rubric, from blank form to filed row
+
+`evaluation.test.js` proves the questionnaire. This drives the **real page**:
+`useCandidates` is a live store and the "database" answers the three queries the
+page makes (the room's filed evaluations on mount, the evaluation upsert, and the
+`personal_interview_completed` update that releases the room).
+
+- **The form is keyed to the task.** A candidate in a Personal Interview gets the
+  rubric; a Debate Interview gets a plain explanation instead of a form, and an
+  empty room says nobody is there. A deleted room explains itself rather than
+  rendering a broken page.
+- The form renders **`dir="rtl"`** on itself (Hebrew content inside English
+  chrome), all four parts with their headers, and both closing buttons by their
+  exact labels.
+- **Prefill from the board**: name and serial number arrive filled in; the
+  interviewer is filled only when the room names exactly one.
+- **The rubric is about the longest-waiting occupant**: with two people in the
+  room, the earlier one's name is in the form and the later one is listed as next
+  in the room.
+- **A half-filled form cannot be filed**: nothing is written, no release is
+  issued, the missing fields are marked `שדה חובה`, and the mark clears when the
+  field is answered.
+- **Filing it saves the answers and releases the room**: the upsert carries the
+  candidate, room, task, interviewer and submitting admin; numbers are stored as
+  numbers and blanks as `null`; the release is exactly
+  `personal_interview_completed: true`, which is what lets Rule 3 clear the room.
+- **The confirmation survives the release.** The bug this caught: filing a rubric
+  empties the room, and the reset that follows was wiping the recap at the moment
+  the interviewer most needs it. The recap is deliberately kept when the room
+  empties, and dropped when a *different* candidate turns up.
+- **Skip releases without filing anything** — and only asks for confirmation when
+  the interviewer has typed something beyond the prefilled name and serial, so an
+  untouched form does not nag.
+- Already-filed rubrics for the room are listed collapsed, filtered to that room,
+  and expandable in place with skipped answers marked `לא הוזן`.
+
 ---
 
 ## 3. Database — `tests/db/*.test.mjs`
@@ -329,7 +416,7 @@ Every row they create is named `ZZQA-…` and deleted in a `finally` block, and
 both scripts assert that no `ZZQA-` rows survive. A crashed run leaves the board
 exactly as it found it.
 
-### `rules.test.mjs` — 43 assertions
+### `rules.test.mjs` — 50 assertions
 
 | Rule | What is asserted |
 | --- | --- |
@@ -341,7 +428,7 @@ exactly as it found it.
 | **6 — the task follows the room** | A client claiming `Personal Interview` while being put in a Debate room is overruled — on the **update path and the insert path**. A `General` room keeps the admin's choice. Retyping a room re-derives the task for whoever is standing in it. |
 | **7 — interviewer conflicts** | A conflicting assignment is refused with HTTP 400 and the message `Conflict of interest: …`, the row is left untouched, matching is case-insensitive (the constraint list is stored uppercase, the panel's name lowercase), the **insert** path is refused as well, a room with an empty panel is always allowed, a panel of strangers is allowed, a lookalike (`Danny` vs `daniel`) is not a conflict, a **partial panel conflict** is still refused and the error names the offending member, a `General` room is filtered too, the panel is tidied on the way in (blanks and duplicates do not survive, the first spelling keeps its phone), and **releasing a room is never blocked** — even when the conflict appeared around a candidate already seated. |
 
-### `privacy.test.mjs` — 25 assertions
+### `privacy.test.mjs` — 36 assertions
 
 This is the "Strict Privacy Verification" requirement, answered as "what could a
 candidate actually do with the publishable key?", not "what does our page ask
@@ -362,8 +449,19 @@ for?".
   *silently* — `204` with zero rows changed — so these assertions check the row,
   not the status code, which is the mistake that lets a real hole through.)
 - Anonymous visitors cannot read the `allowed_admins` list.
+- **Evaluations are unreachable, in every direction.** The rubric names the
+  candidate, their serial number and what the club thought of them, and the anon
+  key ships in the bundle every candidate downloads — so the checks are done on the
+  wire: `select=*`, `select=scores`, a smuggled
+  `select=candidate_id,scores` and a filtered single-row read all come back
+  `401`/`403`; an insert is refused; and against a real evaluation created with the
+  privileged key, an anonymous `PATCH` leaves both the interviewer name and the
+  score untouched and an anonymous `DELETE` leaves the row in place. That last
+  pair asserts the *row*, not the status code, because RLS filters an unpermitted
+  write silently.
 - **Signed-in admins are unaffected**: they can still read and edit the panel,
-  and `select=*` still works for them.
+  `select=*` still works for them, and the same session can read the rubrics the
+  room view fetches on mount.
 
 ---
 
@@ -375,7 +473,7 @@ against production at any time, including mid-event.
 
 ```bash
 npm run test:e2e
-$env:CQ_E2E_MUTATIONS="1"; npx playwright test tests/e2e/conflict-ui.spec.js   # opt-in writing scenario
+$env:CQ_E2E_MUTATIONS="1"; npx playwright test tests/e2e/conflict-ui.spec.js tests/e2e/room-rubric.spec.js   # opt-in writing scenarios
 ```
 
 ### `public-privacy.spec.js`
@@ -439,6 +537,28 @@ have the data to judge (e.g. nothing has finished yet) rather than failing.
   candidate was not sent to A320, then delete the row. It cleans up before and
   after, so a failure cannot leave data behind.
 
+### `room-rubric.spec.js`
+
+Two things are worth proving against live data, and nothing more.
+
+- **The gate, always:** `/room/:id` shows one candidate's name and the scores the
+  club gave them, so an anonymous visitor must land on the sign-in wall — not the
+  rubric, not a half-rendered form — and the sign-in link must remember which room
+  was asked for so an interviewer ends up back there. The five rubric columns are
+  probed directly with the publishable key and must be refused.
+- **The wiring, signed in:** the room opens from the rooms panel and names the
+  room; an occupied-Personal-Interview room shows the Hebrew form (asserted to be
+  `dir="rtl"` when such a pair exists, and skipped when the board has none); a room
+  nobody is in never offers the form.
+- **Opt-in (`CQ_E2E_MUTATIONS=1`), the whole thing for real:** a scratch room and a
+  candidate seated in a Personal Interview, the rubric filled through the real
+  form (including the 1–5 chips), then the database checked — one evaluation row
+  with the right task, room, interviewer and submitting admin, numbers stored as
+  numbers and the untouched rating as `null`, and the candidate released with room,
+  task and clock all cleared. It then reloads the room to confirm the form is gone
+  and the filed rubric is still readable read-only. Everything it creates lives in
+  a scratch room of its own and is swept before and after.
+
 ---
 
 ## Coverage
@@ -450,11 +570,15 @@ Measured with `npm run test:coverage` (v8, jsdom):
 | `src/lib/time.js` | 100% | 100% |
 | `src/lib/conflicts.js` | 100% | 98% |
 | `src/lib/autoAssign.js` | 100% | 95% |
+| `src/lib/rooms.js` | 100% | 89% |
+| `src/lib/evaluation.js` | 100% | 90% |
 | `src/lib/csv.js` | 98% | 74% |
+| `src/components/EvaluationForm.jsx` | 100% | 87% |
 | `src/components/InterviewerModal.jsx` | 100% | 96% |
 | `src/components/CandidateCard.jsx` | 100% | 96% |
-| `src/components/RoomsPanel.jsx` | 93% | 84% |
+| `src/components/RoomsPanel.jsx` | 93% | 87% |
 | `src/pages/CandidateView.jsx` | 98% | 91% |
+| `src/pages/RoomView.jsx` | 93% | 79% |
 | `src/pages/Admin.jsx` | 74% | 81% |
 
 The business logic — the part that can be silently wrong — is effectively fully
@@ -463,7 +587,9 @@ QR and toast handlers are not unit-tested, deliberately. The parts that carry a
 rule — the three lists, the optimistic patches and the Auto-Assign click — *are*
 covered (`dashboardSync.test.jsx`, `autoAssignUi.test.jsx`), and everything else
 is covered from the other direction by the Rule 1–7 suite (which drives the same
-API calls) and by the end-to-end specs.
+API calls) and by the end-to-end specs. `RoomView.jsx` sits at 93% for the same
+reason: its uncovered branches are the loading/error paths and the Debate-placeholder
+card, which the end-to-end spec exercises instead.
 
 ---
 
@@ -495,6 +621,13 @@ pinned down.
 | 4 | One restricted panel member is enough | `conflicts.test.js` (partial panel); `rules.test.mjs` (partial panel refused); `candidateCard.test.jsx`; `autoAssignUi.test.jsx` (a blocked `General` room is bypassed) |
 | 4 | Auto-Assign bypasses a blocked room | `autoAssign.test.js` (filtered before counting); `autoAssignUi.test.jsx` (picks the unblocked room, and the distinct "all restricted" toast) |
 | 4 | The panel never reaches a candidate's browser | `privacy.test.mjs` (anon gets `401` for the column, for a smuggled select and for `select=*`); `public-privacy.spec.js` (no request mentions it, no response body contains it, the replay fails); `candidateView.test.jsx` (a deliberately fat mock row never reaches the DOM) |
+| 5 | The rubric opens for `Current_Task_Assignment = 'Personal Interview'` | `roomEvaluation.test.jsx` (a Personal Interview shows the form, a Debate Interview does not, an empty room says so); `room-rubric.spec.js` (live, opt-in, and the read-only state checks); `evaluation.test.js` (`PERSONAL_INTERVIEW`) |
+| 5 | The exact Hebrew wording, instructions and 1–5 anchors | `evaluation.test.js` — every label, note and anchor asserted as a literal string, in order |
+| 5 | Required fields enforced; name and serial pre-filled | `evaluation.test.js` (the mandatory list, validation, prefill rules); `roomEvaluation.test.jsx` (a half-filled form writes nothing); `room-rubric.spec.js` (live prefills) |
+| 5 | RTL, scrollable, with the two closing buttons pinned to the bottom | `roomEvaluation.test.jsx` (`dir="rtl"`, both buttons by label, all four parts); `EvaluationForm.jsx`'s `sticky bottom-0` bar; `room-rubric.spec.js` (live `dir="rtl"`) |
+| 5 | Submitting stores the scores **and** releases the room | `roomEvaluation.test.jsx` (the upsert and the `personal_interview_completed` write); `rules.test.mjs` Rule 3 (the release itself); `room-rubric.spec.js` (live: the row, the types, and the cleared room/task/clock) |
+| 5 | Skipping releases without storing anything | `roomEvaluation.test.jsx` (no upsert, the release still issued, confirmation only when there is typing to lose) |
+| 5 | The evaluation stays **discreet** — admin-facing only | `privacy.test.mjs` (anon cannot read, filter, insert, edit or delete); `public-privacy.spec.js` (the public page never touches it); `room-rubric.spec.js` (an anonymous visit to `/room/:id` lands on the sign-in wall) |
 
 ---
 
@@ -633,11 +766,43 @@ Test with a phone in one hand: the dispatcher is usually standing up.
     candidate's own phone number. Both must be absent — including the panel
     itself, not just the old singular fields.
 
-### G. The day after
+### G. The in-room rubric (Personal Interviews)
 
-40. Export/import a CSV in the original Hebrew format and confirm the serial,
+40. Open a room card's **Open** link. The room view must name the room, show who
+    is in it and for how long, and load the **Hebrew form** the moment the
+    occupant's task is a Personal Interview. The whole page must still be behind
+    the admin gate if you open the URL in a private window.
+41. Check the form reads right-to-left and that the four parts are separated, the
+    two closing buttons are visible without scrolling to the bottom, and the
+    candidate's **name and serial number are already filled in**.
+42. Put a second interviewer in that room's panel (E12) and reload the room: the
+    *"מי מראיין?"* field must fill in only when the panel has exactly one member.
+43. Press **Submit** with fields missing. Nothing must be written, the missing
+    fields must be marked `שדה חובה`, and the first one must take focus.
+44. Fill everything mandatory (skip the optional ones), press **Submit**, and
+    confirm: the answers shown back are what you typed, the toast confirms, and the
+    room empties. Reload the page — the form must be gone because nobody is in the
+    room.
+45. Check the *Filed in this room* list: your evaluation must be there, expandable,
+    with the questions you skipped marked `לא הוזן`. A rating of **1** must show as
+    `1`, not as blank.
+46. Reload the dashboard and confirm the candidate is out of the room, has the
+    Personal Interview ticked, and that the **room's `⏱️` counter is gone** — the
+    release is a real release, not just a redrawn page.
+47. Open the same room on a second device, file a rubric, and confirm the first
+    device shows the room as empty within a few seconds and can read the filed
+    rubric on reload.
+48. Press **Skip Digital Feedback & Release Room** without typing anything: it must
+    not nag, and must release the room. Then type one answer and press it again —
+    now it must warn before discarding.
+49. In the public `/candidate/:id` page's network tab, search for `evaluations`.
+    There must be no such request and no scores in any response.
+
+### H. The day after
+
+50. Export/import a CSV in the original Hebrew format and confirm the serial,
     name, phone and time all land in the right columns.
-41. Delete a test candidate and confirm the row disappears without disturbing the
+51. Delete a test candidate and confirm the row disappears without disturbing the
     others.
 
 ---
@@ -654,5 +819,12 @@ Test with a phone in one hand: the dispatcher is usually standing up.
   covered by `npm run db:push`'s own verification step.
 - **Load and performance.** 49 candidates and 7 rooms render instantly; the
   design target is a few hundred, and no profiling has been done.
+- **The `evaluations` table is not on the realtime publication.** The room view
+  fetches the room's filed rubrics on mount, after a submit and after a skip, so a
+  rubric filed by somebody else appears on reload rather than instantly. Deliberate
+  for now: one more always-on subscription per room buys little over a reload.
+- **Reporting over `scores`.** The rows are stored per question and the shape is
+  fixed, but there is no aggregate/export surface (rankings, averages, CSV) yet —
+  only the per-room read-only recap. Ask and it can be added as a view.
 - **Cross-browser.** Playwright runs Chromium only. The app is plain React and
   Tailwind with no engine-specific CSS, but Firefox/Safari have not been checked.

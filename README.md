@@ -4,7 +4,8 @@ A real-time, full-stack queue and dispatch system for candidate interviews.
 
 - **Frontend:** React 19 + Vite + Tailwind CSS v4
 - **Backend:** Supabase (Postgres, Auth, Realtime)
-- **Hosting:** works on any static host with a free tier (Vercel, Netlify, Cloudflare Pages)
+- **Hosting:** Netlify via Git-connected auto-deploy ([`netlify.toml`](./netlify.toml)
+  is committed), and equally at home on Vercel or Cloudflare Pages
 
 ---
 
@@ -29,6 +30,8 @@ A real-time, full-stack queue and dispatch system for candidate interviews.
 | **Manual CRUD** | Add / Edit / Delete candidates from modals. |
 | **QR codes** | Each row can show a QR linking to the public `/candidate/:id` page. |
 | **Public page** | Read-only, no auth, live via realtime — shows "proceed to room" or "you are in the queue". |
+| **In-room rubric** | A **Personal Interview** opens the club's own 22-question Hebrew form inside `/room/:roomId` — right-to-left, mandatory fields enforced, the candidate's name and serial pre-filled, and the interviewer's panel filled in when the room names exactly one. Submit files it and releases the room; Skip releases the room without filing. |
+| **Evaluation records** | Each submission is stored in `evaluations` (one row per candidate per interview, so re-submitting edits rather than duplicates). The table has **no anonymous access at all** — it is staff-only, like the form. |
 
 ---
 
@@ -81,6 +84,7 @@ npm run dev
 | --- | --- |
 | `/login` | Staff sign in |
 | `/admin` | Dispatch dashboard (protected) |
+| `/room/:roomId` | In-room board + the Personal Interview rubric (protected) |
 | `/candidate/:id` | Public live status page (no auth) |
 
 ---
@@ -104,23 +108,48 @@ their leading `0` restored.
 
 ## Deploying for free
 
-### Vercel (recommended)
+### Netlify (this project's setup)
 
-1. Push this folder to a GitHub repository.
-2. Import it at [vercel.com](https://vercel.com) — the Vite preset is detected automatically.
-3. (Optional) Add `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` in
-   **Settings → Environment Variables**. This is not required — the values fall
-   back to the defaults hardcoded in `src/lib/supabase.js`.
-4. Add a **rewrite** so client-side routes work. Create `vercel.json`:
+[`netlify.toml`](./netlify.toml) is committed, so a Git-connected site needs no
+build settings typed into the dashboard at all:
+
+```toml
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+```
+
+1. Push this repository to GitHub.
+2. **Add new site → Import an existing project** and pick the repo. Netlify reads
+   `netlify.toml` and builds.
+3. No environment variables are needed — the Supabase URL and publishable key fall
+   back to the values in `src/lib/supabase.js`. Set `VITE_SUPABASE_URL` /
+   `VITE_SUPABASE_PUBLISHABLE_KEY` only to point a deploy at a *different* project.
+4. The `[[redirects]]` rule is what makes the SPA routes work: `/admin`,
+   `/room/:roomId` and `/candidate/:id` all have to survive a refresh, and a
+   static host would otherwise answer with a 404.
+
+After that, **every push to `main` redeploys automatically** (~1 minute). Then set
+**Supabase → Authentication → URL Configuration → Site URL** to the Netlify URL so
+magic-link sign-ins come back to the right place.
+
+### Vercel
+
+1. Import the repository at [vercel.com](https://vercel.com) — the Vite preset is
+   detected automatically.
+2. Add a **rewrite** so client-side routes work. Create `vercel.json`:
 
 ```json
 { "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }
 ```
-
-### Netlify
-
-Build command `npm run build`, publish directory `dist`, plus a `public/_redirects`
-file containing `/* /index.html 200`.
 
 ### Cloudflare Pages
 
@@ -277,6 +306,73 @@ If no room of the needed type exists you get an error toast instead. Two admins
 clicking at the same instant can still pick the same room; the assignment is
 last-write-wins, exactly as if they had used the room dropdown by hand.
 
+## The in-room rubric
+
+Every room card links to **`/room/:roomId`** — the board the interviewers keep
+open on a phone. It shows who is in the room and for how long, and when that
+candidate's `Current_Task_Assignment` is a **Personal Interview** it puts the
+club's own rubric in front of the interviewer.
+
+The page is behind the same admin gate as the dispatcher board. It names a
+candidate, shows the panel's phone numbers and writes scores, so it is staff-only
+by construction — and the `evaluations` table has **no anonymous grant at all**,
+which is what makes the form genuinely discreet rather than merely unlinked.
+
+- **The wording is data, not JSX.** All 22 questions, their subtexts and the 1→5
+  anchor labels live in [`src/lib/evaluation.js`](./src/lib/evaluation.js),
+  transcribed verbatim in Hebrew. Re-wording a question, moving a field between
+  mandatory and optional, or changing an anchor is a one-line edit there, and
+  `tests/unit/evaluation.test.js` asserts the literal strings — so a stray edit
+  fails the build instead of quietly changing a question mid-season.
+- **Four parts**, each its own card: general details, the three-criteria
+  questions, commitment, and the post-interview rating. The form sets
+  `dir="rtl"` on itself rather than on `<html>`, because the surrounding app is
+  English — numbers are pinned back to `dir="ltr"` so they read as typed.
+- **Filled in where the board can.** The candidate's full name and serial number
+  come from the database. *"מי מראיין?"* is filled from the room's panel **only
+  when the room names exactly one interviewer** — with a panel of two there is no
+  way to guess which one is in the room, and a wrong name is worse than a blank.
+- **Mandatory means mandatory.** Twelve of the twenty-two questions are required;
+  a half-filled form cannot be filed, the missing fields are marked
+  `שדה חובה`, focus jumps to the first one, and nothing is written.
+- **The buttons stay put.** *Submit Evaluation & Release Room* and *Skip Digital
+  Feedback & Release Room* live in a `sticky bottom-0` bar, because the rubric is
+  long enough that a plain button would sit several screens below the question
+  being answered. Skipping only asks for confirmation if the interviewer has
+  actually typed something beyond the prefilled name and serial — an untouched
+  form skips straight through.
+- **Filing it is two writes, in this order:** the evaluation (an upsert on
+  `(candidate_id, task)`, so a second click edits rather than duplicates), then
+  `personal_interview_completed = true`. That second write is the whole release
+  mechanism — **Rule 3** clears the room, the task and the in-room clock, so the
+  page never clears the room itself and cannot disagree with the dispatcher view.
+  If the release fails the evaluation is already safe, and the interviewer is
+  told to retry the release rather than losing what they typed.
+- **The confirmation stays.** Filing a rubric releases the room, so the candidate
+  leaving is the *expected* result of a successful submit; the recap that shows
+  what was just filed therefore survives an empty room, and is only cleared when
+  a *different* candidate turns up.
+- **Filed rubrics are readable from the room**, newest first, collapsed to a row
+  per candidate and expandable in place. Nothing about an evaluation ever appears
+  on the public `/candidate/:id` page.
+
+Saved as one JSONB object per row, `scores` mirrors the form exactly: every
+question is a key, numbers for the numeric and 1–5 questions, trimmed strings
+otherwise, and `null` for whatever was left blank — so "20 questions, 18
+answered" needs no schema archaeology. `interviewer_name` is also lifted into its
+own column so "who wrote this" is queryable, alongside `room_id`, `task`,
+`submitted_by` (the admin session) and `created_at`.
+
+> **A note on the section labels.** Sections 1 and 3 were specified by name in
+> English ("General Details", "Commitment") with no Hebrew heading of their own,
+> while sections 2 and 4 came with their own intro lines. The four part eyebrows
+> (`חלק 1 — פרטים כלליים`, `חלק 2 — שאלות תוכן`, `חלק 3 — מחויבות`,
+> `חלק 4 — דירוג`) are the only strings in the form the club did not supply, and
+> they carry no instructions. They sit together at the top of `evaluation.js` if
+> the wording should change. The two closing buttons use the exact English labels
+> from the specification; both are props of `EvaluationForm` if Hebrew labels are
+> preferred instead.
+
 ## Logging & debugging
 
 A small dependency-free logger (`src/lib/logger.js`) plus a Supabase
@@ -306,7 +402,7 @@ middleware (`src/lib/supabase.js`) trace everything that happens:
 ## Testing
 
 ```bash
-npm test          # logic + components          (237 tests, jsdom)
+npm test          # logic + components          (295 tests, jsdom)
 npm run test:db   # live database               (Rules 1–7 + strict privacy)
 npm run test:e2e  # real browser                (Playwright, read-only by default)
 npm run test:all  # all four layers
@@ -316,6 +412,17 @@ Four layers, because the rules live in four different places: pure functions and
 components under Vitest + React Testing Library, Rules 1–7 and the anonymous-read
 guarantees against the **real** database, and Playwright for the real UI. The
 business logic is at ~100% statement coverage.
+
+The rubric is verified at every layer: the literal Hebrew wording as data, the
+page's behaviour (which task shows the form, what is prefilled, what a
+half-filled form does, that submitting releases the room), the database's refusal
+to let an anonymous visitor read or alter an evaluation, and — opt-in, because it
+writes — a real end-to-end filing of a Personal Interview rubric against the live
+project:
+
+```bash
+$env:CQ_E2E_MUTATIONS=1; npx playwright test tests/e2e/room-rubric.spec.js
+```
 
 The full strategy, the coverage table and a step-by-step **manual exploratory
 checklist for event day** are in [`docs/TESTING.md`](./docs/TESTING.md).
@@ -339,6 +446,13 @@ checklist for event day** are in [`docs/TESTING.md`](./docs/TESTING.md).
   - To harden it, expose a reduced view (or a `security definer` RPC) instead of
     the raw table and enable realtime on that instead. Ask and this can be
     swapped in.
+- **Evaluations are invisible to anonymous visitors.** Unlike `rooms` and
+  `candidates`, the `evaluations` table grants the `anon` role nothing at all —
+  the privilege is revoked explicitly, not merely left without a policy, because
+  Supabase's default privileges hand every new `public` table to `anon`. Reading
+  it, filtering it, inserting into it, editing a score or deleting a row all come
+  back `401`/`403` with the publishable key. The rubric is therefore never one
+  careless `select *` away from being public.
 - The public page requests only the columns it renders — `name`, `planned_time`,
   `arrival_time`, the assignment fields and the two interview flags. A
   candidate's **serial number and phone number are never sent to their browser**,
@@ -353,11 +467,13 @@ checklist for event day** are in [`docs/TESTING.md`](./docs/TESTING.md).
 ```
 src/
   components/     Column, CandidateCard, RoomsPanel, InterviewerModal, modals,
-                  toast, guards, BrandMark, ErrorBoundary, DebugPanel, RouteLogger
+                  EvaluationForm, toast, guards, BrandMark, ErrorBoundary,
+                  DebugPanel, RouteLogger
   hooks/          useAuth (session + admin check), useCandidates (data + realtime)
   lib/            supabase client + query middleware, logger, csv, time,
-                  autoAssign, conflicts, monitoring
-  pages/          Login, Admin, CandidateView
+                  autoAssign, conflicts, rooms (in-room ordering),
+                  evaluation (the Hebrew rubric), monitoring
+  pages/          Login, Admin, RoomView, CandidateView
 public/
   ru-debate.png   App logo — drop the artwork here (see public/README.md)
 scripts/
@@ -365,10 +481,11 @@ scripts/
 supabase/
   schema.sql      One-shot database setup (tables, RLS, automation triggers)
 tests/
-  unit/           Vitest — pure logic (time, conflicts, autoAssign, csv) and
-                  components (Admin's three lists, an edit reaching the screen,
-                  the rooms panel clock/queue, the Auto-Assign button,
-                  CandidateCard, InterviewerModal, CandidateView)
+  unit/           Vitest — pure logic (time, conflicts, autoAssign, csv, rooms,
+                  evaluation) and components (Admin's three lists, an edit
+                  reaching the screen, the rooms panel clock/queue, the Auto-Assign
+                  button, CandidateCard, InterviewerModal, CandidateView, and the
+                  in-room rubric)
   db/             Rules 1–7 and the privacy guarantees, against the live project
   e2e/            Playwright — the real UI, read-only unless you opt in
 docs/

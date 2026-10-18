@@ -5,6 +5,7 @@ import RequireAdmin from './components/RequireAdmin'
 import Login from './pages/Login'
 import Admin from './pages/Admin'
 import CandidateView from './pages/CandidateView'
+import RoomView from './pages/RoomView'
 
 export default function App() {
   if (!isConfigured) return <ConfigBanner />
@@ -18,6 +19,16 @@ export default function App() {
         element={
           <RequireAdmin>
             <Admin />
+          </RequireAdmin>
+        }
+      />
+      {/* The in-room rubric. Staff-only, like the dispatcher view: it shows a
+          candidate's name and scores, so it sits behind the same admin gate. */}
+      <Route
+        path="/room/:roomId"
+        element={
+          <RequireAdmin>
+            <RoomView />
           </RequireAdmin>
         }
       />

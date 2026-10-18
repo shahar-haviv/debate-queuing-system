@@ -61,6 +61,35 @@ create index if not exists candidates_has_arrived_idx on public.candidates (has_
 create index if not exists candidates_planned_time_idx on public.candidates (planned_time);
 create index if not exists candidates_assigned_room_idx on public.candidates (assigned_room);
 
+-- The interviewer's rubric, in its own table rather than as columns on
+-- `candidates`. Two reasons: a candidate is interviewed twice, so scores would
+-- otherwise be two sparse sets of twenty-odd columns; and `candidates` is
+-- world-readable (the QR page selects from it), so anything stored there is one
+-- careless `select *` away from being public. This table has no anonymous grant
+-- at all — see §4 — which is what keeps the form "discreet".
+create table if not exists public.evaluations (
+  id               uuid primary key default gen_random_uuid(),
+  candidate_id     uuid not null references public.candidates (id) on delete cascade,
+  room_id          uuid references public.rooms (id) on delete set null,
+  task             public.task_assignment not null,
+  -- Lifted out of `scores` so "who wrote this" is queryable without digging
+  -- through JSONB. The same answer also stays in `scores` as the form's first
+  -- field, so the saved JSONB mirrors the form exactly.
+  interviewer_name text,
+  scores           jsonb not null default '{}'::jsonb,
+  submitted_by     text,                       -- the admin session that submitted
+  created_at       timestamptz not null default now()
+);
+
+create index if not exists evaluations_candidate_idx on public.evaluations (candidate_id);
+create index if not exists evaluations_room_idx on public.evaluations (room_id);
+
+-- One evaluation per candidate per interview. Re-submitting the form replaces
+-- the previous answer instead of silently stacking duplicates, which is why the
+-- room view can upsert on this pair and stay predictable after a double click.
+create unique index if not exists evaluations_candidate_task_key
+  on public.evaluations (candidate_id, task);
+
 -- Full replica identity so realtime DELETE events carry the old row.
 alter table public.candidates replica identity full;
 alter table public.rooms replica identity full;
@@ -74,6 +103,7 @@ alter table public.rooms replica identity full;
 alter table public.rooms      add column if not exists interviewers  jsonb not null default '[]'::jsonb;
 alter table public.candidates add column if not exists room_entry_time   timestamptz;
 alter table public.candidates add column if not exists interviewer_constraints text[] not null default '{}';
+alter table public.evaluations add column if not exists submitted_by text;
 
 -- One-way migration from the first release, when a room could hold exactly one
 -- interviewer in two flat columns. The pair is folded into the panel array, then
@@ -493,6 +523,7 @@ $$;
 alter table public.allowed_admins enable row level security;
 alter table public.rooms          enable row level security;
 alter table public.candidates     enable row level security;
+alter table public.evaluations    enable row level security;
 
 -- allowed_admins: a signed-in user may read only their own row (used to verify access)
 drop policy if exists "Admins read own admin row" on public.allowed_admins;
@@ -538,6 +569,24 @@ create policy "Anyone reads candidates"
 drop policy if exists "Admins manage candidates" on public.candidates;
 create policy "Admins manage candidates"
   on public.candidates for all
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- evaluations: admins only, and deliberately *no* anonymous access whatsoever.
+--
+-- `rooms` gives anon three columns and `candidates` gives it every column, so
+-- both are readable to anyone holding the publishable key that ships in the
+-- bundle. Evaluations are the opposite: the grants table gives every new table
+-- in `public` to anon by default, so the privilege is revoked explicitly rather
+-- than merely left to the absence of a policy. Belt and braces — a policy alone
+-- would already deny, but a future `create policy ... to anon` would then be the
+-- only thing standing between a candidate and their own scores.
+revoke all on public.evaluations from anon;
+
+drop policy if exists "Admins manage evaluations" on public.evaluations;
+create policy "Admins manage evaluations"
+  on public.evaluations for all
   to authenticated
   using (public.is_admin())
   with check (public.is_admin());

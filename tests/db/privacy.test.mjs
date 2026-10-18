@@ -88,6 +88,75 @@ try {
     }
   }
 
+  /* --------------------------- the evaluation rubric ---------------------- */
+  /*
+   * The rubric is the most sensitive table in the schema: it names the candidate,
+   * their serial number and what the club thought of them. The anon key ships in
+   * the bundle every candidate downloads, so the only honest check is what that
+   * key can reach on the wire.
+   */
+  {
+    for (const column of ['*', 'scores', 'candidate_id,scores', 'interviewer_name']) {
+      const blocked = await asAnon(`evaluations?select=${column}`)
+      t.ok(
+        `anon CANNOT read evaluations?select=${column}`,
+        blocked.status === 401 || blocked.status === 403,
+        `status ${blocked.status}`,
+      )
+    }
+
+    const sneaky = await asAnon('evaluations?select=candidate_id&candidate_id=not.is.null&limit=1')
+    t.ok(
+      'and cannot reach a single row by filtering, either',
+      sneaky.status === 401 || sneaky.status === 403,
+      `status ${sneaky.status}`,
+    )
+
+    // A real evaluation to try to tamper with, owned by a scratch candidate so
+    // the usual cleanup takes it with them (evaluations cascade on delete).
+    const scratch = await rest('candidates', {
+      method: 'POST',
+      prefer: 'return=representation',
+      body: { name: 'ZZQA-EVAL-CAND', serial_number: 'ZZQA-EVAL-CAND', has_arrived: true },
+    })
+    const scratchId = scratch.data?.[0]?.id
+
+    if (scratchId) {
+      const created = await rest('evaluations', {
+        method: 'POST',
+        prefer: 'return=representation',
+        body: {
+          candidate_id: scratchId,
+          task: 'Personal Interview',
+          interviewer_name: 'safe',
+          scores: { candidate_name: 'ZZQA-EVAL-CAND', rating_vibe: 5 },
+        },
+      })
+      const evaluationId = created.data?.[0]?.id
+      t.ok('the privileged key can file an evaluation', Boolean(evaluationId), JSON.stringify(created.data))
+
+      if (evaluationId) {
+        await asAnon(`evaluations?id=eq.${evaluationId}`, {
+          method: 'PATCH',
+          body: { interviewer_name: 'attacker', scores: { rating_vibe: 1 } },
+        })
+        const afterPatch = await rest(`evaluations?id=eq.${evaluationId}&select=interviewer_name,scores`)
+        t.equal('anon cannot rewrite a score', afterPatch.data?.[0]?.interviewer_name, 'safe')
+        t.equal('anon cannot rewrite the rubric answers', afterPatch.data?.[0]?.scores?.rating_vibe, 5)
+
+        await asAnon(`evaluations?id=eq.${evaluationId}`, { method: 'DELETE' })
+        const afterDelete = await rest(`evaluations?id=eq.${evaluationId}&select=id`)
+        t.equal('anon cannot delete an evaluation', afterDelete.data?.length, 1)
+      }
+    }
+
+    const insert = await asAnon('evaluations', {
+      method: 'POST',
+      body: { candidate_id: '00000000-0000-0000-0000-000000000000', task: 'Personal Interview', scores: {} },
+    })
+    t.ok('anon cannot insert an evaluation', insert.status >= 400, `status ${insert.status}`)
+  }
+
   /* ---------------------------- write protection -------------------------- */
   {
     // RLS filters an unpermitted write silently — 204 with zero rows changed —
@@ -182,6 +251,10 @@ try {
 
         const everything = await asAdmin('rooms?select=*')
         t.equal('a signed-in admin can still select *', everything.status, 200)
+
+        // The room view reads the room's filed rubrics on mount.
+        const rubrics = await asAdmin('evaluations?select=id,interviewer_name,scores&limit=1')
+        t.equal('a signed-in admin CAN read the rubrics', rubrics.status, 200)
       }
     }
   }

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ROOM_LONG_THRESHOLD_MINUTES, formatDuration, minutesInRoom } from '../lib/time'
+import { occupantsOf } from '../lib/rooms.js'
 import { roomInterviewers } from '../lib/conflicts'
 import InterviewerModal from './InterviewerModal'
 
@@ -46,17 +48,9 @@ function useMinuteClock() {
 
 function RoomCard({ room, candidates, now, busy, onUpdateRoom, onDeleteRoom, onShowInterviewer }) {
   // Longest-waiting first: the person who has been in this room the longest is
-  // at the top, so the interviewer can see who is next without doing sums. The
-  // clock is the in-room one (Rule 5 owns it), with the arrival stamp as a
-  // fallback for a row that predates it.
-  const seatedSince = (candidate) => {
-    const stamp = candidate.room_entry_time ?? candidate.arrival_time
-    const ms = stamp ? new Date(stamp).getTime() : NaN
-    return Number.isNaN(ms) ? Number.MAX_SAFE_INTEGER : ms
-  }
-  const queue = candidates
-    .filter((candidate) => candidate.assigned_room === room.id)
-    .sort((a, b) => seatedSince(a) - seatedSince(b))
+  // at the top, so the interviewer can see who is next without doing sums.
+  // Shared with the in-room rubric view, which must agree on who that is.
+  const queue = occupantsOf(candidates, room.id)
   const active = queue.length > 0
   const panel = roomInterviewers(room)
   const hasInterviewer = panel.length > 0
@@ -83,6 +77,14 @@ function RoomCard({ room, candidates, now, busy, onUpdateRoom, onDeleteRoom, onS
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          <Link
+            to={`/room/${room.id}`}
+            title={`Open the interview room for ${room.room_name}`}
+            aria-label={`Open interview room ${room.room_name}`}
+            className="rounded border border-input bg-card px-1.5 py-0.5 text-xs font-medium text-foreground transition hover:bg-muted"
+          >
+            Open
+          </Link>
           <select
             aria-label={`Type for ${room.room_name}`}
             value={room.room_type}

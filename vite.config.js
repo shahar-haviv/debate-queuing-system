@@ -27,6 +27,8 @@ export default defineConfig({
         'src/lib/conflicts.js',
         'src/lib/autoAssign.js',
         'src/lib/csv.js',
+        'src/lib/rooms.js',
+        'src/lib/evaluation.js',
         'src/components/*.jsx',
         'src/pages/*.jsx',
       ],

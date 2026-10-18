@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import BrandMark from '../components/BrandMark'
 
@@ -17,6 +17,20 @@ function Spinner() {
 export default function Login() {
   const { user, isAdmin, loading, adminError, clearAdminError, signIn, signInWithMagicLink } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  /**
+   * Where to land after a successful sign-in. `RequireAdmin` puts the page they
+   * were blocked on into route state, so an interviewer who opens a room link
+   * ends up in that room; a bare visit still goes to the dispatcher board.
+   * Only same-origin paths are honoured — route state is attacker-influenced in
+   * principle (a crafted link can carry it), and a value like `//evil.example`
+   * would otherwise be a redirect off-site.
+   */
+  const requested = location.state?.from
+  const next = typeof requested === 'string' && requested.startsWith('/') && !requested.startsWith('//')
+    ? requested
+    : '/admin'
 
   const [mode, setMode] = useState('password')
   const [email, setEmail] = useState('')
@@ -30,7 +44,7 @@ export default function Login() {
   }, [clearAdminError])
 
   if (loading) return <Spinner />
-  if (user && isAdmin) return <Navigate to="/admin" replace />
+  if (user && isAdmin) return <Navigate to={next} replace />
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -40,7 +54,7 @@ export default function Login() {
     try {
       if (mode === 'password') {
         await signIn(email.trim(), password)
-        navigate('/admin', { replace: true })
+        navigate(next, { replace: true })
       } else {
         await signInWithMagicLink(email.trim())
         setNotice('Check your inbox — a magic sign-in link is on its way.')

@@ -10,6 +10,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import RoomsPanel from '../../src/components/RoomsPanel.jsx'
 
 /** A timestamp `h:m` local time on the fake "today", so no timezone can skew it. */
@@ -38,7 +39,13 @@ const seated = (over = {}) => ({
 
 function setup(rooms = [room()], candidates = []) {
   const handlers = { onAddRoom: vi.fn(), onUpdateRoom: vi.fn(), onDeleteRoom: vi.fn() }
-  const view = render(<RoomsPanel rooms={rooms} candidates={candidates} busyId={null} {...handlers} />)
+  // Each room card links to its in-room rubric view, so the panel needs a
+  // router in the tree even though no navigation is asserted here.
+  const view = render(
+    <MemoryRouter>
+      <RoomsPanel rooms={rooms} candidates={candidates} busyId={null} {...handlers} />
+    </MemoryRouter>,
+  )
   return { ...handlers, ...view }
 }
 
@@ -140,16 +147,18 @@ describe('RoomsPanel — the active queue', () => {
     // This is the row the app gets after an interview is completed: the trigger
     // (and applyServerRules) nulls assigned_room, current_task and the clock.
     rerender(
-      <RoomsPanel
-        rooms={[room()]}
-        candidates={[
-          seated({ assigned_room: null, current_task_assignment: null, room_entry_time: null, debate_interview_completed: true }),
-        ]}
-        busyId={null}
-        onAddRoom={() => {}}
-        onUpdateRoom={() => {}}
-        onDeleteRoom={() => {}}
-      />,
+      <MemoryRouter>
+        <RoomsPanel
+          rooms={[room()]}
+          candidates={[
+            seated({ assigned_room: null, current_task_assignment: null, room_entry_time: null, debate_interview_completed: true }),
+          ]}
+          busyId={null}
+          onAddRoom={() => {}}
+          onUpdateRoom={() => {}}
+          onDeleteRoom={() => {}}
+        />
+      </MemoryRouter>,
     )
 
     expect(container).toHaveTextContent('Empty queue')
@@ -214,7 +223,9 @@ describe('RoomsPanel — the room card', () => {
 
     expect(screen.getByText('Romi')).toBeInTheDocument()
     expect(screen.getByText('Yael')).toBeInTheDocument()
-    const calls = screen.getAllByRole('link')
+    // The only phone link: the card's "Open" affordance is a router link, not a
+    // tap-to-call, so the assertion is scoped to `tel:` rather than "all links".
+    const calls = screen.getAllByRole('link').filter((link) => link.getAttribute('href').startsWith('tel:'))
     expect(calls).toHaveLength(1)
     expect(calls[0]).toHaveAttribute('href', 'tel:050-1111111')
   })
@@ -238,5 +249,15 @@ describe('RoomsPanel — the room card', () => {
     at(12, 0)
     setup([], [])
     expect(screen.getByText(/No rooms yet/)).toBeInTheDocument()
+  })
+
+  it('links each room to its in-room rubric view', () => {
+    at(12, 0)
+    setup([room(), room({ id: 'r2', room_name: 'CL05', room_type: 'Personal' })], [])
+
+    // Each card carries its own way in, named for the room so a screen reader
+    // user can tell the two links apart.
+    expect(screen.getByLabelText('Open interview room A206')).toHaveAttribute('href', '/room/r1')
+    expect(screen.getByLabelText('Open interview room CL05')).toHaveAttribute('href', '/room/r2')
   })
 })
