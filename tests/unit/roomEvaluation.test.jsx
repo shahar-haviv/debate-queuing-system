@@ -275,11 +275,13 @@ describe('RoomView — filling it in', () => {
     expect(screen.getByLabelText('מי מראיין?')).toHaveValue('')
   })
 
-  it('fills in the interviewer when the room names exactly one', async () => {
-    setup({ rooms: [room({ interviewers: [{ name: 'Romi', phone: '050' }] })] })
+  it('fills in every interviewer the room names, joined', async () => {
+    setup({
+      rooms: [room({ interviewers: [{ name: 'Romi', phone: '050' }, { name: 'Yael', phone: null }] })],
+    })
     await screen.findByText('מי מראיין?')
 
-    expect(screen.getByLabelText('מי מראיין?')).toHaveValue('Romi')
+    expect(screen.getByLabelText('מי מראיין?')).toHaveValue('Romi, Yael')
   })
 
   it('writes the rubric for the candidate who has been in the room longest', async () => {

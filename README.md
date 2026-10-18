@@ -30,7 +30,7 @@ A real-time, full-stack queue and dispatch system for candidate interviews.
 | **Manual CRUD** | Add / Edit / Delete candidates from modals. |
 | **QR codes** | Each row can show a QR linking to the public `/candidate/:id` page. |
 | **Public page** | Read-only, no auth, live via realtime — shows "proceed to room" or "you are in the queue". |
-| **In-room rubric** | A **Personal Interview** opens the club's own 22-question Hebrew form inside `/room/:roomId` — right-to-left, mandatory fields enforced, the candidate's name and serial pre-filled, and the interviewer's panel filled in when the room names exactly one. Submit files it and releases the room; Skip releases the room without filing. |
+| **In-room rubric** | A **Personal Interview** opens the club's own 22-question Hebrew form inside `/room/:roomId` — right-to-left, mandatory fields enforced, the candidate's name and serial pre-filled, and the room's interviewer panel filled in automatically (every name, joined). Submit files it and releases the room; Skip releases the room without filing. |
 | **Evaluation records** | Each submission is stored in `evaluations` (one row per candidate per interview, so re-submitting edits rather than duplicates). The table has **no anonymous access at all** — it is staff-only, like the form. |
 
 ---
@@ -329,9 +329,11 @@ which is what makes the form genuinely discreet rather than merely unlinked.
   `dir="rtl"` on itself rather than on `<html>`, because the surrounding app is
   English — numbers are pinned back to `dir="ltr"` so they read as typed.
 - **Filled in where the board can.** The candidate's full name and serial number
-  come from the database. *"מי מראיין?"* is filled from the room's panel **only
-  when the room names exactly one interviewer** — with a panel of two there is no
-  way to guess which one is in the room, and a wrong name is worse than a blank.
+  come from the database. *"מי מראיין?"* is filled from the room's panel — **every
+  name on it, joined by a comma** (`interviewerNames()` in the same module) —
+  because the panel is who is interviewing in that room. The field stays editable,
+  so an interviewer can trim it to whoever actually sat in. A room with no panel
+  leaves it blank rather than inventing a name.
 - **Mandatory means mandatory.** Twelve of the twenty-two questions are required;
   a half-filled form cannot be filed, the missing fields are marked
   `שדה חובה`, focus jumps to the first one, and nothing is written.

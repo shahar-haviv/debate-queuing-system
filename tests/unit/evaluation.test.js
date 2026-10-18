@@ -22,6 +22,7 @@ import {
   emptyAnswers,
   flattenQuestions,
   initialAnswers,
+  interviewerNames,
   problemMap,
   questionFor,
   recapRows,
@@ -193,14 +194,24 @@ describe('pre-filling from the board', () => {
     expect(answers.candidate_number).toBe('1042')
   })
 
-  it('fills in the interviewer only when the room names exactly one', () => {
+  it('fills in every interviewer the room names, joined', () => {
     expect(initialAnswers(candidate, { interviewers: [{ name: 'Romi' }] }).interviewer_name).toBe('Romi')
-    // Two names is no answer: guessing one of them would put a wrong name on the
-    // record, which is worse than leaving it for the interviewer to type.
+    // A panel of two is still an answer: the room names both, so both go on the
+    // record and the interviewer trims it if only one of them is sitting in.
     expect(
       initialAnswers(candidate, { interviewers: [{ name: 'Romi' }, { name: 'Yael' }] }).interviewer_name,
-    ).toBe('')
+    ).toBe('Romi, Yael')
     expect(initialAnswers(candidate, { interviewers: [] }).interviewer_name).toBe('')
+  })
+
+  it('drops blank and duplicate names out of the panel', () => {
+    const panel = [{ name: ' Romi  ' }, { name: '' }, { name: 'Romi' }, { phone: '050' }, { name: 'Yael' }]
+
+    expect(interviewerNames({ interviewers: panel })).toBe('Romi, Yael')
+    // A room with no panel at all, or a junk one, is a blank field — never a crash.
+    expect(interviewerNames({})).toBe('')
+    expect(interviewerNames({ interviewers: 'nonsense' })).toBe('')
+    expect(interviewerNames(null)).toBe('')
   })
 
   it('survives a candidate with nothing filled in, and never invents an answer', () => {

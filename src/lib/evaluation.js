@@ -227,19 +227,36 @@ export function emptyAnswers(form = PERSONAL_INTERVIEW_FORM) {
 }
 
 /**
+ * The room's interviewer panel as one name for the record.
+ *
+ * Everyone the room names, in panel order, joined by a comma — the panel *is*
+ * who is interviewing in that room, so listing them all is the honest answer to
+ * "מי מראיין?" and the interviewer can trim it if only one of them is sitting
+ * in. Blank and duplicate names are dropped, so a half-filled panel cannot put
+ * ", , Romi, Romi" on a filed rubric; an empty panel yields an empty string and
+ * the field is simply typed.
+ */
+export function interviewerNames(room) {
+  const panel = Array.isArray(room?.interviewers) ? room.interviewers : []
+  return panel
+    .map((interviewer) => String(interviewer?.name ?? '').trim())
+    .filter(Boolean)
+    .filter((name, index, names) => names.indexOf(name) === index)
+    .join(', ')
+}
+
+/**
  * The blank form with the database's half already filled in.
  *
- * "מי מראיין?" is filled from the room's panel only when exactly one
- * interviewer is recorded — with a panel of two there is no way to guess which
- * one is sitting in the room, and a wrong name is worse than a blank.
+ * "מי מראיין?" comes from the room's panel, the candidate's name and serial
+ * number from the board, and nothing else is inferred.
  */
 export function initialAnswers(candidate, room, form = PERSONAL_INTERVIEW_FORM) {
   const answers = emptyAnswers(form)
-  const panel = Array.isArray(room?.interviewers) ? room.interviewers : []
-  const soloInterviewer = panel.length === 1 ? String(panel[0]?.name ?? '').trim() : ''
+  const interviewers = interviewerNames(room)
 
   for (const question of flattenQuestions(form)) {
-    if (question.prefill === 'interviewer') answers[question.key] = soloInterviewer
+    if (question.prefill === 'interviewer') answers[question.key] = interviewers
     else if (question.prefill === 'name') answers[question.key] = candidate?.name ?? ''
     else if (question.prefill === 'serial') answers[question.key] = candidate?.serial_number ?? ''
   }

@@ -161,9 +161,9 @@ rather than regexes:
   competitiveness rating the club marked as not required).
 - **The types**: text, number, textarea and 1–5 scale for each question, matching
   what was specified field by field.
-- Prefill: the name and serial come from the board; *"מי מראיין?"* is filled
-  **only** when the room names exactly one interviewer, and never invented
-  otherwise.
+- Prefill: the name and serial come from the board; *"מי מראיין?"* is the room's
+  whole panel joined by a comma, with blank and duplicate names dropped, and never
+  invented when the panel is empty.
 - Validation: a complete form passes; missing mandatory fields are reported in the
   form's own order with the label attached; whitespace counts as blank; a rating
   outside 1–5 or a non-numeric age is refused, while `1.5` years is a real answer
@@ -382,7 +382,8 @@ page makes (the room's filed evaluations on mount, the evaluation upsert, and th
   chrome), all four parts with their headers, and both closing buttons by their
   exact labels.
 - **Prefill from the board**: name and serial number arrive filled in; the
-  interviewer is filled only when the room names exactly one.
+  interviewer field carries every name on the room's panel, joined by a comma,
+  and stays blank when the panel is empty.
 - **The rubric is about the longest-waiting occupant**: with two people in the
   room, the earlier one's name is in the form and the later one is listed as next
   in the room.
@@ -776,7 +777,8 @@ Test with a phone in one hand: the dispatcher is usually standing up.
     two closing buttons are visible without scrolling to the bottom, and the
     candidate's **name and serial number are already filled in**.
 42. Put a second interviewer in that room's panel (E12) and reload the room: the
-    *"מי מראיין?"* field must fill in only when the panel has exactly one member.
+    *"מי מראיין?"* field must now read both names, joined by a comma — and must
+    still be editable.
 43. Press **Submit** with fields missing. Nothing must be written, the missing
     fields must be marked `שדה חובה`, and the first one must take focus.
 44. Fill everything mandatory (skip the optional ones), press **Submit**, and
