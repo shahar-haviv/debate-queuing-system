@@ -32,6 +32,7 @@ A real-time, full-stack queue and dispatch system for candidate interviews.
 | **Public page** | Read-only, no auth, live via realtime — shows "proceed to room" or "you are in the queue". |
 | **In-room rubric** | A **Personal Interview** opens the club's own 22-question Hebrew form inside `/room/:roomId` — right-to-left, mandatory fields enforced, the candidate's name and serial pre-filled, and the room's interviewer panel filled in automatically (every name, joined). Submit files it and releases the room; Skip releases the room without filing. |
 | **Evaluation records** | Each submission is stored in `evaluations` (one row per candidate per interview, so re-submitting edits rather than duplicates). The table has **no anonymous access at all** — it is staff-only, like the form. |
+| **Analytics** | A read-only **`/admin/analytics`** dashboard over an append-only movement ledger: four KPI cards, *Throughput by Room* and *Average Duration by Room* bar charts (Recharts, long rooms in red), an interviewer leaderboard that separates digital rubrics from paper interviews, and a raw per-room timing table. Refresh on demand. |
 
 ---
 
@@ -375,6 +376,59 @@ own column so "who wrote this" is queryable, alongside `room_id`, `task`,
 > from the specification; both are props of `EvaluationForm` if Hebrew labels are
 > preferred instead.
 
+## The movement ledger & analytics
+
+`/admin/analytics` answers questions the board cannot: **how long does a Personal
+interview actually take in CL05, who is doing the interviews, and how long did
+people wait before they were called?** It is read-only, staff-only, and loads on
+demand rather than streaming.
+
+Everything it shows comes from **`public.candidate_events`**, an append-only
+history written by a trigger on `candidates`. The reason it exists at all is that
+`candidates` is a *snapshot*: it knows where somebody is right now, and every
+move overwrites the previous room. Throughput and duration are history, so they
+need somewhere to live.
+
+- **Written by the database, not the app.** Whatever moves a candidate — the
+  dispatch board, the room view, Auto-Assign, a script — the same trigger writes
+  the same rows, so the ledger cannot disagree with the board. Five event types:
+  `arrived`, `unarrived`, `assigned`, `released`, `completed`.
+- **A move is two rows**, `released` then `assigned`. That makes a "session" a
+  simple pairing: an `assigned` opens it, the next `released`/`completed` in that
+  room closes it. `completed` records the room the candidate was in *before* Rule
+  3 emptied it, which is also the room the rubric was filed in.
+- **No foreign keys, on purpose.** Deleting a candidate or a room must not erase
+  the record of what already happened, so the ids are plain columns and the
+  candidate/room **names and the room's interviewer panel are snapshotted** on
+  every row. That is also what lets the leaderboard credit paper interviews to
+  whoever was on the panel at the time, even after the panel changes.
+- **Append-only for real.** `anon` has no privilege at all; authenticated admins
+  get `SELECT` and nothing else. The rows are inserted by a `SECURITY DEFINER`
+  trigger, so no admin — and no bug in the app — can rewrite history.
+- **A ledger failure never blocks dispatch.** The trigger catches its own errors
+  and downgrades them to a warning: one missing audit row is better than a
+  dispatcher unable to move a candidate.
+
+How each number is defined, so the dashboard and the coordinator agree:
+
+| Metric | Definition |
+| --- | --- |
+| **Total Candidates Processed** | Distinct candidates with at least one **closed** session. Somebody still in a room has no duration yet, so they are not counted against an average. |
+| **Average / Min / Max Time in Room** | Wall-clock minutes from `assigned` to the matching `released`/`completed`, per room. |
+| **Average Wait Time** | `arrived` → the candidate's **first** `assigned`. An arrival with no assignment yet has not finished waiting and is skipped. |
+| **Busiest Room** | The room with the most sessions (ties broken by name, so the card never flickers). |
+| **Digital rubrics** | Rows in `evaluations`, counted per `interviewer_name`. |
+| **Paper** | A `completed` event with **no** rubric filed for that candidate and task — the interview happened, the feedback did not reach the app. Credited to every name on the room's panel; `Unattributed` when the panel was empty. Counting only the *unfiled* ones stops a normal submit, which also completes the interview, from being counted twice. |
+| **Average score** | The mean of the rubric's three 1–5 ratings (`rating_availability`, `rating_vibe`, `rating_competitiveness`). The keys are derived from the form, so a new rating question joins the average automatically — `age` and `years_remaining` are numbers but emphatically not scores. |
+
+Two honest limits: the ledger **starts recording when the schema is installed**,
+so there is no history before that; and a candidate who moved rooms counts once
+per room, which is what "throughput" should mean when a room is used twice.
+
+Recharts is ~380 kB, so `/admin/analytics` is **lazy-loaded** — the dispatch board
+keeps the same first load it had before the charts existed, and the dashboard
+chunk downloads only when somebody opens it.
+
 ## Logging & debugging
 
 A small dependency-free logger (`src/lib/logger.js`) plus a Supabase
@@ -404,7 +458,7 @@ middleware (`src/lib/supabase.js`) trace everything that happens:
 ## Testing
 
 ```bash
-npm test          # logic + components          (295 tests, jsdom)
+npm test          # logic + components          (351 tests, jsdom)
 npm run test:db   # live database               (Rules 1–7 + strict privacy)
 npm run test:e2e  # real browser                (Playwright, read-only by default)
 npm run test:all  # all four layers
@@ -420,11 +474,16 @@ page's behaviour (which task shows the form, what is prefilled, what a
 half-filled form does, that submitting releases the room), the database's refusal
 to let an anonymous visitor read or alter an evaluation, and — opt-in, because it
 writes — a real end-to-end filing of a Personal Interview rubric against the live
-project:
-
-```bash
+project:```bash
 $env:CQ_E2E_MUTATIONS=1; npx playwright test tests/e2e/room-rubric.spec.js
 ```
+
+The analytics layer is covered end to end too: `analytics.test.js` pairs sessions
+(including moves, ties, open stays and hand-edited rows), `useAnalytics.test.js`
+proves the loader pages past PostgREST's 1,000-row cap, `analyticsPage.test.jsx`
+renders the KPIs, charts, leaderboard and empty states from real computed data,
+and `events.test.mjs` drives a candidate through arrival → dispatch → move →
+completion and checks the rows the trigger actually wrote.
 
 The full strategy, the coverage table and a step-by-step **manual exploratory
 checklist for event day** are in [`docs/TESTING.md`](./docs/TESTING.md).
@@ -433,6 +492,10 @@ checklist for event day** are in [`docs/TESTING.md`](./docs/TESTING.md).
 
 - RLS is enabled on every table. Only authenticated users whose email is in
   `allowed_admins` can write (`public.is_admin()`).
+- **The movement ledger is append-only and admin-readable.** `candidate_events`
+  has a `SELECT` policy for admins and no insert/update/delete grant at all;
+  rows are written by a `SECURITY DEFINER` trigger. Anonymous visitors get no
+  privilege, because the rows name candidates, rooms and interviewers.
 - **Interviewer identities are not readable anonymously.** Row-level security
   cannot hide a single column, so the `anon` role's `SELECT` on `rooms` is
   narrowed to the three columns the public page actually renders — `id`,
@@ -471,11 +534,13 @@ src/
   components/     Column, CandidateCard, RoomsPanel, InterviewerModal, modals,
                   EvaluationForm, toast, guards, BrandMark, ErrorBoundary,
                   DebugPanel, RouteLogger
-  hooks/          useAuth (session + admin check), useCandidates (data + realtime)
+  hooks/          useAuth (session + admin check), useCandidates (data + realtime),
+                  useAnalytics (ledger loader + aggregates)
   lib/            supabase client + query middleware, logger, csv, time,
                   autoAssign, conflicts, rooms (in-room ordering),
-                  evaluation (the Hebrew rubric), monitoring
-  pages/          Login, Admin, RoomView, CandidateView
+                  evaluation (the Hebrew rubric), analytics (ledger maths),
+                  monitoring
+  pages/          Login, Admin, Analytics, RoomView, CandidateView
 public/
   ru-debate.png   App logo — drop the artwork here (see public/README.md)
 scripts/
@@ -484,11 +549,12 @@ supabase/
   schema.sql      One-shot database setup (tables, RLS, automation triggers)
 tests/
   unit/           Vitest — pure logic (time, conflicts, autoAssign, csv, rooms,
-                  evaluation) and components (Admin's three lists, an edit
-                  reaching the screen, the rooms panel clock/queue, the Auto-Assign
-                  button, CandidateCard, InterviewerModal, CandidateView, and the
-                  in-room rubric)
-  db/             Rules 1–7 and the privacy guarantees, against the live project
+                  evaluation, analytics) and components (Admin's three lists, an
+                  edit reaching the screen, the rooms panel clock/queue, the
+                  Auto-Assign button, CandidateCard, InterviewerModal,
+                  CandidateView, the in-room rubric, and the analytics dashboard)
+  db/             Rules 1–7, the privacy guarantees, and the event ledger,
+                  against the live project
   e2e/            Playwright — the real UI, read-only unless you opt in
 docs/
   TESTING.md      Test strategy, coverage, and the manual exploratory checklist

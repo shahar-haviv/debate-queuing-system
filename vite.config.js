@@ -29,6 +29,8 @@ export default defineConfig({
         'src/lib/csv.js',
         'src/lib/rooms.js',
         'src/lib/evaluation.js',
+        'src/lib/analytics.js',
+        'src/hooks/useAnalytics.js',
         'src/components/*.jsx',
         'src/pages/*.jsx',
       ],

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCandidates } from '../hooks/useCandidates'
 import { supabase } from '../lib/supabase'
@@ -713,6 +713,12 @@ export default function Admin() {
               {importing ? 'Importing…' : 'Import CSV'}
             </button>
             <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} />
+            <Link
+              to="/admin/analytics"
+              className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              Analytics
+            </Link>
             <button
               type="button"
               onClick={handleSignOut}

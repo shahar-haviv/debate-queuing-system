@@ -6,14 +6,14 @@ just to make a number look better.
 
 | Layer | Runner | Files | What it can prove | Speed |
 | --- | --- | --- | --- | --- |
-| **Logic** | Vitest | `tests/unit/*.test.js` | Sorting, lateness, timers, the Auto-Assign decision, conflict matching (including over a panel), CSV parsing, the in-room queue order, and the rubric's own wording and validation | ~1s |
-| **Components** | Vitest + React Testing Library | `tests/unit/*.test.jsx` | The three lists, the card's locked state, the blocked room options, the room's interviewer panel, the public page's payload, and the in-room rubric from blank form to filed evaluation | ~17s |
-| **Database** | plain Node | `tests/db/*.test.mjs` | Rules 1–7 (triggers), and exactly what an anonymous visitor can read and write — including the evaluation table they cannot touch at all | ~15s |
+| **Logic** | Vitest | `tests/unit/*.test.js` | Sorting, lateness, timers, the Auto-Assign decision, conflict matching (including over a panel), CSV parsing, the in-room queue order, the rubric's own wording and validation, and the ledger's session/throughput maths | ~1s |
+| **Components** | Vitest + React Testing Library | `tests/unit/*.test.jsx` | The three lists, the card's locked state, the blocked room options, the room's interviewer panel, the public page's payload, the in-room rubric from blank form to filed evaluation, and the analytics dashboard | ~17s |
+| **Database** | plain Node | `tests/db/*.test.mjs` | Rules 1–7 (triggers), the movement ledger, and exactly what an anonymous visitor can read and write — including the evaluation and ledger tables they cannot touch at all | ~15s |
 | **End-to-end** | Playwright | `tests/e2e/*.spec.js` | The real UI against the real board, in a real browser | ~60s |
 
 ```bash
-npm test          # logic + components    (295 tests, ~18s)
-npm run test:db   # live database          (86 assertions)
+npm test          # logic + components    (351 tests, ~20s)
+npm run test:db   # live database          (111 assertions)
 npm run test:e2e  # browser                (22 tests; 2 opt-in, 3 data-gated)
 npm run test:all  # all three
 ```
@@ -173,6 +173,38 @@ rather than regexes:
   editing that does not turn `null` into the string `"null"`.
 - The recap rows: every question with its answer, a skipped one flagged as blank,
   and a rating of **1** treated as an answer rather than as absent.
+
+### `analytics.test.js` — the ledger maths
+
+The dashboard is only as trustworthy as its arithmetic, and the arithmetic is
+full of edges the trigger produces on purpose. These tests feed the exact row
+shapes a live ledger writes:
+
+- **Pairing a session**: `assigned` → `released` and `assigned` → `completed`
+  both measure, to the minute.
+- **A move is two sessions.** `released` + `assigned` in the same second gives the
+  old room a duration and the new one its own; the tie is broken by the identity
+  column, asserted by feeding the array in the wrong order.
+- **Open stays are excluded.** Somebody still in a room has no duration, and a
+  half-finished interview must not drag an average down.
+- **Bad input degrades, never crashes**: a close for a different room is ignored,
+  a second assignment without a close drops the earlier session rather than
+  pairing it with the wrong room, an out-of-order ledger is sorted first, a row
+  with no candidate id falls back to the name, and a deleted room reads
+  `Unknown room`.
+- **Room statistics**: volume, distinct candidates, average/min/max, busiest first,
+  and one candidate counted once per room even after moving back.
+- **Wait times**: arrival → *first* assignment only; an arrival with no assignment
+  is skipped, an assignment with no arrival is skipped, and a negative gap from a
+  hand edit is dropped.
+- **The leaderboard counts the two kinds of interview separately**: a filed rubric
+  per `interviewer_name` with the average of the three 1–5 ratings, a **paper**
+  completion credited to every name on the room's panel, `Unattributed` when the
+  panel was empty, and — the subtle one — **no double count** when a completion
+  also filed a rubric, while a completion for the *other* task still counts as
+  paper.
+- **Score keys come from the form**, so `age` and `years_remaining` are
+  deliberately not averaged as if they were ratings.
 
 ---
 
@@ -404,6 +436,34 @@ page makes (the room's filed evaluations on mount, the evaluation upsert, and th
 - Already-filed rubrics for the room are listed collapsed, filtered to that room,
   and expandable in place with skipped answers marked `לא הוזן`.
 
+### `analyticsPage.test.jsx` — the dashboard
+
+Recharts is stubbed (it is a vendor SVG component jsdom cannot measure), but the
+data is **not**: every fixture is run through the real `computeAnalytics` first,
+so the page is asserted against the shape the ledger actually produces.
+
+- The four KPI cards, including one-decimal formatting and the dash when there is
+  nothing to average.
+- The leaderboard: a digital interviewer shows `1 / 1 / 4.0 / 5`, a paper-only
+  interviewer shows `0 / 1 / —`, so the two columns cannot silently merge.
+- The room table: volume, average, minimum and maximum, with the long room's
+  maximum flagged.
+- Both charts receive their data, the Refresh button calls the loader (and is
+  disabled while one is in flight), and the empty state explains that the ledger
+  starts recording now rather than showing a wall of zeroes.
+- The missing-table error names the fix (`npm run db:push`), because "not
+  installed" and "network problem" are different problems.
+
+### `useAnalytics.test.js` — the loader
+
+A fake PostgREST client returns pages, which pins the two behaviours that are easy
+to get wrong:
+
+- **It pages past 1,000 rows.** PostgREST caps a response and does not say so; a
+  1,001-event ledger must come back whole (asserted: ranges `0` and `1000`).
+- **A missing ledger is reported as `MISSING_LEDGER`**, not as a generic failure,
+  while any other error keeps its own message.
+
 ---
 
 ## 3. Database — `tests/db/*.test.mjs`
@@ -463,6 +523,27 @@ for?".
 - **Signed-in admins are unaffected**: they can still read and edit the panel,
   `select=*` still works for them, and the same session can read the rubrics the
   room view fetches on mount.
+
+### `events.test.mjs` — the movement ledger
+
+The trigger is the only writer of `candidate_events`, and `/admin/analytics`
+counts what it wrote. So the test drives a scratch candidate through the same REST
+endpoint the UI uses and reads the ledger back:
+
+- An insert of an unarrived candidate writes **nothing**.
+- Ticking *Arrived* writes one `arrived` row with the candidate's name snapshotted.
+- Dispatch writes `assigned` with the room name, the task Rule 6 derived, and the
+  room's panel joined.
+- **A move writes `released` then `assigned`**, with the old room's task on the
+  release and the identity order asserted — this is what makes session pairing
+  correct.
+- Completing writes **one** `completed` row carrying the room they were in, and
+  Rule 3 still clears the room; the test asserts there is no duplicate `released`
+  row for the same instant.
+- Un-ticking *Arrived* records `unarrived`.
+- Anonymous visitors can neither read nor delete the ledger, and cleanup deletes
+  ledger rows by name prefix because the table deliberately has no foreign key to
+  `candidates`.
 
 ---
 
@@ -573,11 +654,14 @@ Measured with `npm run test:coverage` (v8, jsdom):
 | `src/lib/autoAssign.js` | 100% | 95% |
 | `src/lib/rooms.js` | 100% | 89% |
 | `src/lib/evaluation.js` | 100% | 90% |
+| `src/lib/analytics.js` | 100% | 91% |
+| `src/hooks/useAnalytics.js` | 96% | 87% |
 | `src/lib/csv.js` | 98% | 74% |
 | `src/components/EvaluationForm.jsx` | 100% | 87% |
 | `src/components/InterviewerModal.jsx` | 100% | 96% |
 | `src/components/CandidateCard.jsx` | 100% | 96% |
 | `src/components/RoomsPanel.jsx` | 93% | 87% |
+| `src/pages/Analytics.jsx` | 99% | 92% |
 | `src/pages/CandidateView.jsx` | 98% | 91% |
 | `src/pages/RoomView.jsx` | 93% | 79% |
 | `src/pages/Admin.jsx` | 74% | 81% |
@@ -629,6 +713,13 @@ pinned down.
 | 5 | Submitting stores the scores **and** releases the room | `roomEvaluation.test.jsx` (the upsert and the `personal_interview_completed` write); `rules.test.mjs` Rule 3 (the release itself); `room-rubric.spec.js` (live: the row, the types, and the cleared room/task/clock) |
 | 5 | Skipping releases without storing anything | `roomEvaluation.test.jsx` (no upsert, the release still issued, confirmation only when there is typing to lose) |
 | 5 | The evaluation stays **discreet** — admin-facing only | `privacy.test.mjs` (anon cannot read, filter, insert, edit or delete); `public-privacy.spec.js` (the public page never touches it); `room-rubric.spec.js` (an anonymous visit to `/room/:id` lands on the sign-in wall) |
+| 6 | Every move is recorded, whoever made it | `events.test.mjs` (arrival, dispatch, move, completion, un-arrival, through the API the UI uses) |
+| 6 | Time in room = `assigned` → the matching `released`/`completed` | `analytics.test.js` (both close types, moves, an open stay excluded); `analyticsPage.test.jsx` (the table and chart) |
+| 6 | Throughput and duration per room | `analytics.test.js` (volume, average/min/max, busiest first); `analyticsPage.test.jsx` (bar charts, red over 20 minutes) |
+| 6 | Interviewer leaderboard, including paper interviews | `analytics.test.js` (digital per `interviewer_name`, paper credited to the panel, **no double count**); `analyticsPage.test.jsx` |
+| 6 | Average initial wait | `analytics.test.js` (arrival → first assignment only; missing halves skipped) |
+| 6 | The dashboard reads the **whole** ledger | `useAnalytics.test.js` (1,001 rows, pages `0` and `1000`) |
+| 6 | The ledger is staff-only and append-only | `events.test.mjs` (anon read and delete refused; written by the trigger); `README` security notes |
 
 ---
 
@@ -807,6 +898,29 @@ Test with a phone in one hand: the dispatcher is usually standing up.
 51. Delete a test candidate and confirm the row disappears without disturbing the
     others.
 
+### I. Analytics (`/admin/analytics`)
+
+52. Open it from the **Analytics** button on the dispatch board. It must load
+    without slowing the board down; the first visit downloads one extra chunk.
+53. Move one candidate through the real flow — tick *Arrived*, dispatch, complete
+    the interview — then press **Refresh metrics**. *Total Candidates Processed*
+    must have gone up by exactly one, and the room must appear in both charts and
+    in the room table with a plausible duration.
+54. Move a candidate between two rooms and refresh: both rooms must gain a
+    session, and the candidate must count once in each — not once overall.
+55. Put a candidate in a room and **leave them there**, then refresh. They must
+    not appear in any duration average yet (the KPI note says *closed sessions
+    only*).
+56. File one rubric and skip another, then refresh: the interviewer who filed must
+    show one **digital** rubric, and the room's panel must show one **paper**
+    interview. Nobody must be counted twice for the same interview.
+57. Sign out, then open `/admin/analytics` directly: it must land on the sign-in
+    wall. Confirm in the network tab that the page requests `candidate_events`
+    only when signed in.
+
+> The ledger records from the moment `npm run db:push` installs it. A dashboard
+> that opens empty is correct on a fresh install; the page says so explicitly.
+
 ---
 
 ## Deliberately out of scope
@@ -819,14 +933,15 @@ Test with a phone in one hand: the dispatcher is usually standing up.
   not automated, because the outcome is intentionally non-deterministic.
 - **The `allowed_admins` bootstrap**, which requires the service role and is
   covered by `npm run db:push`'s own verification step.
-- **Load and performance.** 49 candidates and 7 rooms render instantly; the
+- **Load and performance.** 74 candidates and 7 rooms render instantly; the
   design target is a few hundred, and no profiling has been done.
 - **The `evaluations` table is not on the realtime publication.** The room view
   fetches the room's filed rubrics on mount, after a submit and after a skip, so a
   rubric filed by somebody else appears on reload rather than instantly. Deliberate
   for now: one more always-on subscription per room buys little over a reload.
-- **Reporting over `scores`.** The rows are stored per question and the shape is
-  fixed, but there is no aggregate/export surface (rankings, averages, CSV) yet —
-  only the per-room read-only recap. Ask and it can be added as a view.
+- **Exporting the analytics.** The dashboard now aggregates `scores` (average per
+  interviewer, digital vs paper), but there is no CSV/Excel download of the
+  leaderboard or the ledger yet. Ask and it can be added on top of the same
+  `analytics.js` functions.
 - **Cross-browser.** Playwright runs Chromium only. The app is plain React and
   Tailwind with no engine-specific CSS, but Firefox/Safari have not been checked.

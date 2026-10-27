@@ -90,6 +90,40 @@ create index if not exists evaluations_room_idx on public.evaluations (room_id);
 create unique index if not exists evaluations_candidate_task_key
   on public.evaluations (candidate_id, task);
 
+-- The movement ledger.
+--
+-- `candidates` is a snapshot: it knows where somebody is *right now*, and every
+-- move overwrites the previous room. That is the right shape for dispatch and
+-- the wrong shape for operations, because "how long did the average Personal
+-- interview take in CL05" cannot be answered from it after the fact. This table
+-- is the append-only history the analytics dashboard reads.
+--
+-- Two deliberate choices:
+--   • **No foreign keys.** Deleting a candidate (or a room) must not erase the
+--     record of what already happened — that history is the whole point — so
+--     both ids are plain columns and the names are snapshotted beside them.
+--   • **Written by a trigger, never by the app.** Whatever screen moves somebody
+--     (dispatch board, room view, auto-assign), the same rows land in the same
+--     shape, so the ledger cannot disagree with the board.
+create table if not exists public.candidate_events (
+  id             bigint generated always as identity primary key,
+  candidate_id   uuid,
+  candidate_name text,
+  at             timestamptz not null default now(),
+  event          text not null,          -- arrived | assigned | released | completed | unarrived
+  room_id        uuid,
+  room_name      text,
+  task           public.task_assignment,
+  interviewer    text,                   -- the room's panel at that moment
+  by_email       text,                   -- the signed-in admin, when there was one
+  detail         jsonb not null default '{}'::jsonb
+);
+
+create index if not exists candidate_events_candidate_idx on public.candidate_events (candidate_id, at);
+create index if not exists candidate_events_room_idx      on public.candidate_events (room_id, at);
+create index if not exists candidate_events_at_idx        on public.candidate_events (at);
+create index if not exists candidate_events_event_idx     on public.candidate_events (event);
+
 -- Full replica identity so realtime DELETE events carry the old row.
 alter table public.candidates replica identity full;
 alter table public.rooms replica identity full;
@@ -424,6 +458,146 @@ create trigger candidates_before_insert
   before insert on public.candidates
   for each row execute function public.handle_candidate_insert();
 
+-- ---------------------------------------------------------------------------
+-- The ledger writer.
+--
+-- `room_panel` snapshots the room's interviewers at the moment of the event, so
+-- "who ran the paper interviews" can be answered later even after the panel is
+-- reshuffled. It is the one piece of the room that the event row copies rather
+-- than references.
+-- ---------------------------------------------------------------------------
+create or replace function public.room_panel(target_room uuid)
+returns text
+language sql
+stable
+set search_path = public
+as $$
+  select nullif(string_agg(trim(entry ->> 'name'), ', '), '')
+    from public.rooms room
+    cross join lateral jsonb_array_elements(room.interviewers) entry
+   where room.id = target_room
+     and coalesce(trim(entry ->> 'name'), '') <> '';
+$$;
+
+/**
+ * Every movement, appended to `candidate_events` in the same transaction as the
+ * change that caused it. The five events are:
+ *
+ *   arrived    has_arrived went false -> true
+ *   unarrived  has_arrived went true  -> false (also emits `released` if seated)
+ *   assigned   assigned_room went null/other -> this room
+ *   released   assigned_room went from a room to null or to a different room
+ *   completed  an interview flag flipped — the room they were in is recorded,
+ *              because Rule 3 has already emptied it by the time this runs
+ *
+ * `released` + `assigned` are written in that order for a room-to-room move, so
+ * a session reader sees the old room close before the new one opens. The id is
+ * an identity column, so ordering by `(at, id)` recovers that order even when
+ * both share a timestamp.
+ *
+ * SECURITY DEFINER because the table grants no write access to anybody: the
+ * ledger is append-only from the API's point of view, and only this function
+ * (running as its owner) may add a row.
+ */
+create or replace function public.log_candidate_event()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  completed_task public.task_assignment;
+  actor text := nullif(coalesce(auth.jwt() ->> 'email', ''), '');
+begin
+  /* --- inserted already arrived, and possibly already in a room ----------- */
+  if tg_op = 'INSERT' then
+    if new.has_arrived is true then
+      insert into public.candidate_events (candidate_id, candidate_name, event, by_email)
+      values (new.id, new.name, 'arrived', actor);
+
+      if new.assigned_room is not null then
+        insert into public.candidate_events
+          (candidate_id, candidate_name, event, room_id, room_name, task, interviewer, by_email)
+        values (
+          new.id, new.name, 'assigned', new.assigned_room,
+          (select room.room_name from public.rooms room where room.id = new.assigned_room),
+          new.current_task_assignment,
+          public.room_panel(new.assigned_room),
+          actor
+        );
+      end if;
+    end if;
+    return new;
+  end if;
+
+  /* --- arriving / un-arriving --------------------------------------------- */
+  if new.has_arrived is true and old.has_arrived is not true then
+    insert into public.candidate_events (candidate_id, candidate_name, event, by_email)
+    values (new.id, new.name, 'arrived', actor);
+  end if;
+
+  if old.has_arrived is true and new.has_arrived is not true then
+    insert into public.candidate_events (candidate_id, candidate_name, event, by_email)
+    values (new.id, new.name, 'unarrived', actor);
+  end if;
+
+  /* --- which interview, if either, was just completed --------------------- */
+  if new.personal_interview_completed is true and old.personal_interview_completed is not true then
+    completed_task := 'Personal Interview';
+  elsif new.debate_interview_completed is true and old.debate_interview_completed is not true then
+    completed_task := 'Debate Interview';
+  end if;
+
+  if completed_task is not null then
+    insert into public.candidate_events
+      (candidate_id, candidate_name, event, room_id, room_name, task, interviewer, by_email)
+    values (
+      new.id, new.name, 'completed', old.assigned_room,
+      (select room.room_name from public.rooms room where room.id = old.assigned_room),
+      completed_task,
+      public.room_panel(old.assigned_room),
+      actor
+    );
+  elsif old.assigned_room is distinct from new.assigned_room then
+    if old.assigned_room is not null then
+      insert into public.candidate_events
+        (candidate_id, candidate_name, event, room_id, room_name, task, interviewer, by_email)
+      values (
+        new.id, new.name, 'released', old.assigned_room,
+        (select room.room_name from public.rooms room where room.id = old.assigned_room),
+        old.current_task_assignment,
+        public.room_panel(old.assigned_room),
+        actor
+      );
+    end if;
+
+    if new.assigned_room is not null then
+      insert into public.candidate_events
+        (candidate_id, candidate_name, event, room_id, room_name, task, interviewer, by_email)
+      values (
+        new.id, new.name, 'assigned', new.assigned_room,
+        (select room.room_name from public.rooms room where room.id = new.assigned_room),
+        new.current_task_assignment,
+        public.room_panel(new.assigned_room),
+        actor
+      );
+    end if;
+  end if;
+
+  return new;
+
+exception when others then
+  -- A dispatcher must never be unable to move a candidate because the ledger
+  -- failed. One missing audit row is strictly better than a stuck board.
+  raise warning 'candidate_events ledger skipped: %', sqlerrm;
+  return new;
+end $$;
+
+drop trigger if exists candidates_log_events on public.candidates;
+create trigger candidates_log_events
+  after insert or update on public.candidates
+  for each row execute function public.log_candidate_event();
+
 -- A room's panel is tidied on the way into the table, whoever sent it, so the
 -- array can never hold blank names or the same person twice. Rule 7 then only
 -- ever has to compare clean names.
@@ -590,6 +764,24 @@ create policy "Admins manage evaluations"
   to authenticated
   using (public.is_admin())
   with check (public.is_admin());
+
+-- candidate_events: admin-readable, and genuinely append-only.
+--
+-- There is a SELECT policy and nothing else, so no admin — and no bug in the
+-- app — can edit or delete what the ledger recorded. Anonymous visitors get no
+-- privilege at all, the same as evaluations: the rows name candidates, rooms
+-- and interviewers. Writes come from the SECURITY DEFINER trigger above, which
+-- is unaffected by the privilege grants here.
+alter table public.candidate_events enable row level security;
+revoke all on public.candidate_events from anon;
+revoke insert, update, delete on public.candidate_events from authenticated;
+grant select on public.candidate_events to authenticated;
+
+drop policy if exists "Admins read candidate events" on public.candidate_events;
+create policy "Admins read candidate events"
+  on public.candidate_events for select
+  to authenticated
+  using (public.is_admin());
 
 -- ---------------------------------------------------------------------------
 -- 5. Realtime
