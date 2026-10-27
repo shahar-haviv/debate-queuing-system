@@ -12,7 +12,7 @@ just to make a number look better.
 | **End-to-end** | Playwright | `tests/e2e/*.spec.js` | The real UI against the real board, in a real browser | ~60s |
 
 ```bash
-npm test          # logic + components    (351 tests, ~20s)
+npm test          # logic + components    (357 tests, ~20s)
 npm run test:db   # live database          (110 assertions)
 npm run test:e2e  # browser                (22 tests; 2 opt-in, 3 data-gated)
 npm run test:all  # all three
@@ -205,6 +205,8 @@ shapes a live ledger writes:
   paper.
 - **Score keys come from the form**, so `age` and `years_remaining` are
   deliberately not averaged as if they were ratings.
+- The **Recent Movements** list is the ledger newest first, capped, with names
+  taken from the snapshots on the rows rather than a join.
 
 ---
 
@@ -451,6 +453,11 @@ so the page is asserted against the shape the ledger actually produces.
 - Both charts receive their data, the Refresh button calls the loader (and is
   disabled while one is in flight), and the empty state explains that the ledger
   starts recording now rather than showing a wall of zeroes.
+- **Movements without a session still show.** One recorded event and no finished
+  room session is the state right after installation: the page says *"Movements
+  recorded — no finished room session yet"*, keeps the KPIs at zero, and lists the
+  event in the *Recent Movements* table, newest first, so it is obvious the ledger
+  is alive.
 - The missing-table error names the fix (`npm run db:push`), because "not
   installed" and "network problem" are different problems.
 

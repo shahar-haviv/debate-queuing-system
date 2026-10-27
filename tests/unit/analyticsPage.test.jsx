@@ -77,7 +77,7 @@ const events = [
   // c4: 10-minute wait, 8 minutes in A206.
   event('arrived', 30, { candidate_id: 'c4' }),
   event('assigned', 40, { candidate_id: 'c4', ...A206 }),
-  event('released', 48, { candidate_id: 'c4', ...A206 }),
+  event('released', 48, { candidate_id: 'c4', candidate_name: 'מועמד ד', ...A206 }),
 ]
 
 const evaluations = [
@@ -202,6 +202,52 @@ describe('Analytics', () => {
     expect(screen.getByText('No room sessions recorded yet.')).toBeTruthy()
     expect(screen.getByTestId('kpi-processed').textContent).toBe('0')
     expect(screen.getByTestId('kpi-room-time').textContent).toBe('—')
+  })
+
+  it('lists the movements it does have, newest first', () => {
+    renderPage()
+
+    const rows = within(screen.getByTestId('events-table')).getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(events.length)
+
+    const newest = within(rows[0]).getAllByRole('cell').map((cell) => cell.textContent)
+    expect(newest.slice(1)).toEqual(['מועמד ד', 'Released', 'A206', 'דניאל'])
+  })
+
+  it('says why there is no duration when only a movement has been recorded', () => {
+    ledger.current = {
+      ...ledger.current,
+      analytics: computeAnalytics({
+        events: [
+          {
+            id: 1,
+            at: at(0),
+            event: 'completed',
+            candidate_id: 'c9',
+            candidate_name: 'יעל אריאלי',
+            room_id: 'room-e201',
+            room_name: 'E201',
+            task: 'Debate Interview',
+            interviewer: 'אורי',
+          },
+        ],
+        evaluations: [],
+      }),
+    }
+    renderPage()
+
+    expect(screen.getByText('Movements recorded — no finished room session yet')).toBeTruthy()
+    expect(screen.getByTestId('kpi-processed').textContent).toBe('0')
+    expect(screen.getByText('1 movement · 0 filed rubrics')).toBeTruthy()
+
+    const row = within(screen.getByTestId('events-table')).getAllByRole('row')[1]
+    expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      expect.stringMatching(/^\d{2}\/\d{2} \d{2}:\d{2}$/),
+      'יעל אריאלי',
+      'Completed',
+      'E201',
+      'אורי',
+    ])
   })
 
   it('tells the coordinator to install the ledger when the table is missing', () => {

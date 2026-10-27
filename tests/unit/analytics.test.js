@@ -18,6 +18,7 @@ import {
   buildSessions,
   computeAnalytics,
   leaderboard,
+  recentEvents,
   roomStatistics,
   round1,
   rubricScore,
@@ -401,6 +402,48 @@ describe('leaderboard', () => {
 
   it('has nothing to say about an empty event log', () => {
     expect(leaderboard([], [])).toEqual([])
+  })
+})
+
+describe('recentEvents', () => {
+  it('returns the ledger newest first', () => {
+    const rows = recentEvents([
+      event(EVENT.ARRIVED, 0),
+      event(EVENT.ASSIGNED, 5, CL05),
+      event(EVENT.COMPLETED, 20, CL05),
+    ])
+
+    expect(rows.map((row) => row.event)).toEqual(['completed', 'assigned', 'arrived'])
+  })
+
+  it('caps the list and keeps the newest rows', () => {
+    const many = Array.from({ length: 30 }, (_, index) =>
+      event(EVENT.ARRIVED, index, { candidate_name: `c${index}` }),
+    )
+
+    const rows = recentEvents(many, 5)
+    expect(rows).toHaveLength(5)
+    expect(rows[0].candidateName).toBe('c29')
+  })
+
+  it('describes a row with the names snapshotted at the time', () => {
+    const [row] = recentEvents([
+      event(EVENT.COMPLETED, 10, { ...CL05, interviewer: 'דניאל, רומי' }),
+    ])
+
+    expect(row).toMatchObject({
+      event: 'completed',
+      candidateName: 'מועמד לדוגמה',
+      roomName: 'CL05',
+      task: 'Personal Interview',
+      interviewer: 'דניאל, רומי',
+    })
+  })
+
+  it('copes with a sparse row and with no rows at all', () => {
+    const [row] = recentEvents([event(EVENT.ARRIVED, 0, { candidate_name: null })])
+    expect(row.candidateName).toBe('')
+    expect(recentEvents([])).toEqual([])
   })
 })
 

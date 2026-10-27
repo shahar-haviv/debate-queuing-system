@@ -255,6 +255,28 @@ export function leaderboard(evaluations = [], events = []) {
     )
 }
 
+/**
+ * The last few rows, newest first, for the dashboard's movement log.
+ *
+ * Useful precisely when there is not enough history for a session yet: it shows
+ * that the ledger is recording, and what it recorded, instead of leaving the
+ * coordinator staring at four zeroes and wondering whether the page is broken.
+ */
+export function recentEvents(events = [], limit = 20) {
+  return ordered(events)
+    .slice(-limit)
+    .reverse()
+    .map((event) => ({
+      id: event.id,
+      at: event.at,
+      event: event.event,
+      candidateName: event.candidate_name ?? '',
+      roomName: event.room_name ?? '',
+      task: event.task ?? '',
+      interviewer: event.interviewer ?? '',
+    }))
+}
+
 /** Everything the dashboard renders, in one pass. */
 export function computeAnalytics({ events = [], evaluations = [] } = {}) {
   const sessions = buildSessions(events)
@@ -266,6 +288,7 @@ export function computeAnalytics({ events = [], evaluations = [] } = {}) {
     sessions,
     rooms,
     waits,
+    recent: recentEvents(events),
     leaderboard: leaderboard(evaluations, events),
     totals: {
       processed: new Set(sessions.map((session) => session.key)).size,

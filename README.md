@@ -32,7 +32,7 @@ A real-time, full-stack queue and dispatch system for candidate interviews.
 | **Public page** | Read-only, no auth, live via realtime — shows "proceed to room" or "you are in the queue". |
 | **In-room rubric** | A **Personal Interview** opens the club's own 22-question Hebrew form inside `/room/:roomId` — right-to-left, mandatory fields enforced, the candidate's name and serial pre-filled, and the room's interviewer panel filled in automatically (every name, joined). Submit files it and releases the room; Skip releases the room without filing. |
 | **Evaluation records** | Each submission is stored in `evaluations` (one row per candidate per interview, so re-submitting edits rather than duplicates). The table has **no anonymous access at all** — it is staff-only, like the form. |
-| **Analytics** | A read-only **`/admin/analytics`** dashboard over an append-only movement ledger: four KPI cards, *Throughput by Room* and *Average Duration by Room* bar charts (Recharts, long rooms in red), an interviewer leaderboard that separates digital rubrics from paper interviews, and a raw per-room timing table. Refresh on demand. |
+| **Analytics** | A read-only **`/admin/analytics`** dashboard over an append-only movement ledger: four KPI cards, *Throughput by Room* and *Average Duration by Room* bar charts (Recharts, long rooms in red), an interviewer leaderboard that separates digital rubrics from paper interviews, a raw per-room timing table, and the latest movements themselves. Refresh on demand. |
 
 ---
 
@@ -425,6 +425,12 @@ Two honest limits: the ledger **starts recording when the schema is installed**,
 so there is no history before that; and a candidate who moved rooms counts once
 per room, which is what "throughput" should mean when a room is used twice.
 
+The page never hides that. With no movements it says the ledger starts now; with
+movements but no finished session — the awkward first minutes after installing
+it — it says so explicitly and shows the movements in a **Recent Movements** table
+at the bottom, so a single recorded event is visible rather than leaving four
+zeroes looking like a broken page.
+
 Recharts is ~380 kB, so `/admin/analytics` is **lazy-loaded** — the dispatch board
 keeps the same first load it had before the charts existed, and the dashboard
 chunk downloads only when somebody opens it.
@@ -458,7 +464,7 @@ middleware (`src/lib/supabase.js`) trace everything that happens:
 ## Testing
 
 ```bash
-npm test          # logic + components          (351 tests, jsdom)
+npm test          # logic + components          (357 tests, jsdom)
 npm run test:db   # live database               (Rules 1–7 + strict privacy)
 npm run test:e2e  # real browser                (Playwright, read-only by default)
 npm run test:all  # all four layers

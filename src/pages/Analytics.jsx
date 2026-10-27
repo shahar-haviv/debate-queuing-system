@@ -94,11 +94,28 @@ function EmptyChart({ message }) {
   )
 }
 
+const MOVEMENT_LABELS = {
+  arrived: 'Arrived',
+  unarrived: 'Un-arrived',
+  assigned: 'Assigned',
+  released: 'Released',
+  completed: 'Completed',
+}
+
+/** A ledger timestamp in the viewer's own timezone, e.g. `27/10 12:17`. */
+export function formatWhen(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  const day = date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })
+  const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return `${day} ${time}`
+}
+
 export default function Analytics() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const { analytics, loading, refreshing, error, updatedAt, refresh } = useAnalytics()
-  const { totals, rooms, leaderboard } = analytics
+  const { totals, rooms, leaderboard, recent } = analytics
 
   const handleSignOut = useCallback(async () => {
     await signOut()
@@ -159,7 +176,7 @@ export default function Analytics() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-muted-foreground">
             {hasEvents
-              ? `${totals.events.toLocaleString('en-US')} ledger events · ${totals.evaluations.toLocaleString('en-US')} filed rubrics`
+              ? `${totals.events.toLocaleString('en-US')} movement${totals.events === 1 ? '' : 's'} · ${totals.evaluations.toLocaleString('en-US')} filed rubric${totals.evaluations === 1 ? '' : 's'}`
               : 'No ledger data yet'}
           </p>
           <button
@@ -223,14 +240,29 @@ export default function Analytics() {
               />
             </div>
 
-            {!hasEvents && (
+            {!hasSessions && (
               <Card className="bg-muted/40">
-                <h2 className="text-sm font-semibold text-foreground">The ledger starts now</h2>
+                <h2 className="text-sm font-semibold text-foreground">
+                  {hasEvents ? 'Movements recorded — no finished room session yet' : 'The ledger starts now'}
+                </h2>
                 <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                  This page reads the append-only movement history, which began recording when the
-                  current schema was installed. Nothing that happened before that is in it: earlier
-                  moves were never stored anywhere. Tick somebody as arrived, send them to a room and
-                  complete the interview, and these charts will start to fill in.
+                  {hasEvents ? (
+                    <>
+                      The ledger is recording: {totals.events.toLocaleString('en-US')} movement
+                      {totals.events === 1 ? ' is' : 's are'} in it, listed at the bottom of this
+                      page. A room session is measured from the moment somebody is sent into a room
+                      to the moment that room is released or the interview completed, so there is
+                      nothing to average until the next candidate goes all the way through. Anything
+                      that happened before the ledger was installed is not in it.
+                    </>
+                  ) : (
+                    <>
+                      This page reads the append-only movement history, which began recording when the
+                      current schema was installed. Nothing that happened before that is in it: earlier
+                      moves were never stored anywhere. Tick somebody as arrived, send them to a room and
+                      complete the interview, and these charts will start to fill in.
+                    </>
+                  )}
                 </p>
               </Card>
             )}
@@ -400,6 +432,50 @@ export default function Analytics() {
                 </div>
               </Card>
             </div>
+
+            {recent.length > 0 && (
+              <Card className="overflow-hidden p-0">
+                <div className="border-b border-border px-4 py-3">
+                  <h2 className="text-sm font-semibold text-foreground">Recent Movements</h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    The last {recent.length} ledger row{recent.length === 1 ? '' : 's'}, newest first
+                    — every arrival, dispatch, move, release and completion, whoever made it.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="events-table">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="px-4 py-2 font-semibold">When</th>
+                        <th className="px-4 py-2 font-semibold">Candidate</th>
+                        <th className="px-4 py-2 font-semibold">Movement</th>
+                        <th className="px-4 py-2 font-semibold">Room</th>
+                        <th className="px-4 py-2 font-semibold">Interviewer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recent.map((row) => (
+                        <tr key={row.id} className="border-t border-border">
+                          <td className="whitespace-nowrap px-4 py-2 tabular-nums text-muted-foreground">
+                            {formatWhen(row.at)}
+                          </td>
+                          <td className="px-4 py-2 font-medium text-foreground">
+                            {row.candidateName || '—'}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
+                              {MOVEMENT_LABELS[row.event] ?? row.event}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-muted-foreground">{row.roomName || '—'}</td>
+                          <td className="px-4 py-2 text-muted-foreground">{row.interviewer || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
 
             <p className="pb-6 text-xs text-muted-foreground">
               A candidate still in a room has no duration yet and is left out of the averages. A
