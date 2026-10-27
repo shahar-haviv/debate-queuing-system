@@ -13,7 +13,7 @@ just to make a number look better.
 
 ```bash
 npm test          # logic + components    (351 tests, ~20s)
-npm run test:db   # live database          (111 assertions)
+npm run test:db   # live database          (110 assertions)
 npm run test:e2e  # browser                (22 tests; 2 opt-in, 3 data-gated)
 npm run test:all  # all three
 ```
