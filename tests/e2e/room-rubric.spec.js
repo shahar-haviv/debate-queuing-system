@@ -90,7 +90,7 @@ test.describe('the room view, signed in', () => {
 
     await expect(page).toHaveURL(/\/room\/[0-9a-f-]{36}$/)
     await expect(page.getByRole('heading', { name: new RegExp(roomName) })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Dispatch board' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Dispatch board', exact: true })).toBeVisible()
   })
 
   test('shows the rubric when somebody is in a Personal Interview, and says so otherwise', async ({ page, request }) => {
