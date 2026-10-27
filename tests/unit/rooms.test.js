@@ -7,7 +7,7 @@
  * on the order the database happened to send the rows in.
  */
 import { describe, expect, it } from 'vitest'
-import { longestWaitingOccupant, occupantsOf, seatedSince } from '../../src/lib/rooms.js'
+import { longestWaitingOccupant, occupantsOf, seatedSince } from '../../src/domain/rooms'
 
 const person = (over = {}) => ({
   id: 'c1',

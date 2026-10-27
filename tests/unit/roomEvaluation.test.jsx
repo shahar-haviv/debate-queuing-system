@@ -14,7 +14,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import RoomView from '../../src/pages/RoomView.jsx'
+import RoomView from '../../src/pages/RoomView'
 
 /* ------------------------------- the board ------------------------------- */
 
@@ -90,7 +90,7 @@ vi.mock('../../src/hooks/useCandidates', async () => {
  * read, `evaluations.upsert(...)` is the save, and
  * `candidates.update(...).eq('id',…).select().single()` is the release.
  */
-vi.mock('../../src/lib/supabase', () => {
+vi.mock('../../src/services/supabase', () => {
   const evaluations = () => {
     const query = { room: null }
     const api = {
@@ -135,9 +135,19 @@ vi.mock('../../src/lib/supabase', () => {
     return api
   }
 
+  const client = {
+    from: (table) => (table === 'evaluations' ? evaluations() : candidates()),
+    channel: () => {
+      const channel = { on: () => channel, subscribe: () => channel }
+      return channel
+    },
+    removeChannel: () => {},
+  }
+
   return {
-    isConfigured: true,
-    supabase: { from: (table) => (table === 'evaluations' ? evaluations() : candidates()) },
+    getSupabaseClient: () => client,
+    createSupabaseClient: () => client,
+    resetSupabaseClient: () => {},
   }
 })
 

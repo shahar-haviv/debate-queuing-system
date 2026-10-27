@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import Admin from '../../src/pages/Admin.jsx'
+import Admin from '../../src/pages/Admin'
 
 const board = vi.hoisted(() => ({ candidates: [], rooms: [], loading: false, error: null }))
 
@@ -32,18 +32,6 @@ vi.mock('../../src/hooks/useCandidates', () => ({
     addRoomLocal: () => {},
     removeRoomLocal: () => {},
   }),
-}))
-
-vi.mock('../../src/lib/supabase', () => ({
-  isConfigured: true,
-  supabase: {
-    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }),
-    channel: () => {
-      const channel = { on: () => channel, subscribe: () => channel }
-      return channel
-    },
-    removeChannel: () => {},
-  },
 }))
 
 /* ------------------------------- fixtures -------------------------------- */

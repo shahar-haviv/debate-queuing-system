@@ -10,8 +10,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { computeAnalytics } from '../../src/lib/analytics.js'
-import Analytics, { formatMinutes } from '../../src/pages/Analytics.jsx'
+import { computeAnalytics } from '../../src/domain/analytics'
+import Analytics, { formatMinutes } from '../../src/pages/Analytics'
 
 const { ledger } = vi.hoisted(() => ({
   ledger: { current: null },
@@ -35,7 +35,7 @@ vi.mock('../../src/hooks/useAuth', () => ({
   useAuth: () => ({ user: { email: 'admin@example.com' }, signOut: async () => {} }),
 }))
 
-vi.mock('../../src/hooks/useAnalytics.js', () => ({
+vi.mock('../../src/hooks/useAnalytics', () => ({
   MISSING_LEDGER: 'MISSING_LEDGER',
   useAnalytics: () => ledger.current,
 }))

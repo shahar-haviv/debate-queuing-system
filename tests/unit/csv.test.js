@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dedupeKey, normalizePhone, parseCandidatesCsv } from '../../src/lib/csv.js'
+import { dedupeKey, normalizePhone, parseCandidatesCsv } from '../../src/domain/csv'
 
 describe('normalizePhone', () => {
   it('restores the leading zero a spreadsheet drops', () => {

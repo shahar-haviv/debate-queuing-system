@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import InterviewerModal from '../../src/components/InterviewerModal.jsx'
+import InterviewerModal from '../../src/components/features/InterviewerModal'
 
 const room = (over = {}) => ({
   id: 'r1',

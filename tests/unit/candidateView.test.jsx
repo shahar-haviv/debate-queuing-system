@@ -11,7 +11,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import CandidateView from '../../src/pages/CandidateView.jsx'
+import CandidateView from '../../src/pages/CandidateView'
 
 const state = vi.hoisted(() => ({
   candidate: null,
@@ -19,7 +19,7 @@ const state = vi.hoisted(() => ({
   selects: [],
 }))
 
-vi.mock('../../src/lib/supabase', () => {
+vi.mock('../../src/services/supabase', () => {
   const query = (table) => ({
     _table: table,
     select(cols) {
@@ -34,16 +34,19 @@ vi.mock('../../src/lib/supabase', () => {
     },
   })
 
-  return {
-    isConfigured: true,
-    supabase: {
-      from: (table) => query(table),
-      channel: () => {
-        const channel = { on: () => channel, subscribe: () => channel }
-        return channel
-      },
-      removeChannel: () => {},
+  const client = {
+    from: (table) => query(table),
+    channel: () => {
+      const channel = { on: () => channel, subscribe: () => channel }
+      return channel
     },
+    removeChannel: () => {},
+  }
+
+  return {
+    getSupabaseClient: () => client,
+    createSupabaseClient: () => client,
+    resetSupabaseClient: () => {},
   }
 })
 

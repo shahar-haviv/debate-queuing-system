@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import CandidateCard from '../../src/components/CandidateCard.jsx'
+import CandidateCard from '../../src/components/features/CandidateCard'
 
 const ROOMS = [
   { id: 'a206', room_name: 'A206', room_type: 'Debate', interviewers: [] },

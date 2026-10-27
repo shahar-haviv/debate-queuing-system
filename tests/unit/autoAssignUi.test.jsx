@@ -14,7 +14,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import Admin from '../../src/pages/Admin.jsx'
+import Admin from '../../src/pages/Admin'
 
 const board = vi.hoisted(() => {
   const listeners = new Set()
@@ -80,7 +80,7 @@ vi.mock('../../src/hooks/useCandidates', async () => {
  * is the queue read; `from('candidates').update(patch).eq('id',id).select().single()`
  * echoes the merged row. Both are what the click actually issues.
  */
-vi.mock('../../src/lib/supabase', () => {
+vi.mock('../../src/services/supabase', () => {
   const query = (state) => {
     const settle = () => {
       if (state.op === 'update') {
@@ -123,21 +123,24 @@ vi.mock('../../src/lib/supabase', () => {
     return api
   }
 
-  return {
-    isConfigured: true,
-    supabase: {
-      from: () => ({
-        select: () => query({ op: 'select' }),
-        update: (patch) => query({ op: 'update', patch }),
-        insert: (values) => query({ op: 'insert', values }),
-        delete: () => query({ op: 'delete' }),
-      }),
-      channel: () => {
-        const channel = { on: () => channel, subscribe: () => channel }
-        return channel
-      },
-      removeChannel: () => {},
+  const client = {
+    from: () => ({
+      select: () => query({ op: 'select' }),
+      update: (patch) => query({ op: 'update', patch }),
+      insert: (values) => query({ op: 'insert', values }),
+      delete: () => query({ op: 'delete' }),
+    }),
+    channel: () => {
+      const channel = { on: () => channel, subscribe: () => channel }
+      return channel
     },
+    removeChannel: () => {},
+  }
+
+  return {
+    getSupabaseClient: () => client,
+    createSupabaseClient: () => client,
+    resetSupabaseClient: () => {},
   }
 })
 

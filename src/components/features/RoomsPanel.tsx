@@ -1,0 +1,314 @@
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
+import type { Candidate, Room, RoomPatch, RoomType } from '../../core/types'
+import { ROOM_LONG_THRESHOLD_MINUTES, formatDuration, minutesInRoom } from '../../domain/time'
+import { occupantsOf } from '../../domain/rooms'
+import { roomInterviewers } from '../../domain/conflicts'
+import InterviewerModal from './InterviewerModal'
+
+const ROOM_TYPES: RoomType[] = ['General', 'Debate', 'Personal']
+
+const TYPE_BAR: Record<RoomType, string> = {
+  Debate: 'bg-status-debate',
+  Personal: 'bg-status-initial',
+  General: 'bg-status-pending',
+}
+
+/**
+ * Re-renders once a minute so the "time in room" counters stay live.
+ *
+ * The first tick is aligned to the wall-clock minute so the number flips
+ * exactly when the minute changes rather than 60s after mount, and returning
+ * to a backgrounded tab refreshes immediately.
+ */
+function useMinuteClock(): number {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | undefined
+    const timeout = setTimeout(() => {
+      setNow(Date.now())
+      interval = setInterval(() => setNow(Date.now()), 60_000)
+    }, 60_000 - (Date.now() % 60_000))
+
+    const onVisible = () => {
+      if (!document.hidden) setNow(Date.now())
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      clearTimeout(timeout)
+      if (interval) clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+
+  return now
+}
+
+interface RoomCardProps {
+  room: Room
+  candidates: Candidate[]
+  now: number
+  busy: boolean
+  onUpdateRoom: (room: Room, patch: RoomPatch) => Promise<boolean | void>
+  onDeleteRoom: (room: Room) => void
+  onShowInterviewer: (room: Room) => void
+}
+
+function RoomCard({ room, candidates, now, busy, onUpdateRoom, onDeleteRoom, onShowInterviewer }: RoomCardProps) {
+  // Longest-waiting first: the person who has been in this room the longest is
+  // at the top, so the interviewer can see who is next without doing sums.
+  const queue = occupantsOf(candidates, room.id)
+  const active = queue.length > 0
+  const panel = roomInterviewers(room)
+  const hasInterviewer = panel.length > 0
+
+  return (
+    <div
+      className={`rounded-md border p-3 transition ${
+        active
+          ? 'border-status-debate bg-accent ring-1 ring-status-debate/30'
+          : 'border-status-debate/40 bg-accent/60'
+      } ${busy ? 'opacity-50' : ''}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`inline-block size-2 shrink-0 rounded-full ${TYPE_BAR[room.room_type] ?? 'bg-status-pending'}`} />
+          <button
+            type="button"
+            onClick={() => onShowInterviewer(room)}
+            title={hasInterviewer ? 'Edit interviewer panel' : 'Add interviewers'}
+            className="min-w-0 truncate rounded font-semibold text-accent-foreground underline-offset-2 transition hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {room.room_name}
+          </button>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Link
+            to={`/room/${room.id}`}
+            title={`Open the interview room for ${room.room_name}`}
+            aria-label={`Open interview room ${room.room_name}`}
+            className="rounded border border-input bg-card px-1.5 py-0.5 text-xs font-medium text-foreground transition hover:bg-muted"
+          >
+            Open
+          </Link>
+          <select
+            aria-label={`Type for ${room.room_name}`}
+            value={room.room_type}
+            onChange={(event) => void onUpdateRoom(room, { room_type: event.target.value as RoomType })}
+            className="rounded border border-input bg-card px-1 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+          >
+            {ROOM_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            aria-label={`Delete ${room.room_name}`}
+            title={`Delete ${room.room_name}`}
+            onClick={() => onDeleteRoom(room)}
+            className="rounded px-1 text-sm leading-none text-muted-foreground transition hover:text-destructive"
+          >
+            &#10005;
+          </button>
+        </div>
+      </div>
+
+      {/* The whole panel shows in the card itself - the modal is only needed to edit it. */}
+      {hasInterviewer ? (
+        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-accent-foreground/80">
+          <span aria-hidden="true">&#128101;</span>
+          {panel.map((person) => (
+            <span key={person.name} className="inline-flex min-w-0 items-center gap-1">
+              <span className="truncate font-medium">{person.name}</span>
+              {person.phone && (
+                <a
+                  href={`tel:${person.phone}`}
+                  dir="ltr"
+                  title={`Call ${person.name} - ${person.phone}`}
+                  className="shrink-0 text-primary underline underline-offset-2"
+                >
+                  {person.phone}
+                </a>
+              )}
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={() => onShowInterviewer(room)}
+            title="Edit interviewer panel"
+            aria-label={`Edit interviewer panel for ${room.room_name}`}
+            className="shrink-0 rounded px-0.5 text-muted-foreground transition hover:text-primary"
+          >
+            &#9998;
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onShowInterviewer(room)}
+          className="mt-1.5 text-[11px] text-muted-foreground underline-offset-2 transition hover:text-foreground hover:underline"
+        >
+          + Add interviewer
+        </button>
+      )}
+
+      {active ? (
+        <>
+          <p className="mt-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-status-debate">
+            <span className="inline-block size-1.5 animate-pulse rounded-full bg-status-debate" />
+            {queue.length} active
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {queue.map((candidate) => {
+              const minutes = minutesInRoom(candidate.room_entry_time, now)
+              const runningLong = minutes != null && minutes >= ROOM_LONG_THRESHOLD_MINUTES
+              return (
+                <li
+                  key={candidate.id}
+                  className="flex items-center gap-1.5 rounded border border-status-debate/20 bg-card px-2 py-1 text-xs"
+                >
+                  <span className="truncate font-medium text-foreground">{candidate.name}</span>
+
+                  {minutes != null && (
+                    <span
+                      title={`In ${room.room_name} for ${formatDuration(minutes)}${
+                        runningLong ? ' - running long' : ''
+                      }`}
+                      className={`shrink-0 tabular-nums ${
+                        runningLong ? 'font-semibold text-destructive' : 'text-muted-foreground'
+                      }`}
+                    >
+                      &#9201;&#65039; {formatDuration(minutes)}
+                      {runningLong && ' \u26a0\ufe0f'}
+                    </span>
+                  )}
+
+                  <span className="ms-auto shrink-0 text-muted-foreground">
+                    {(candidate.current_task_assignment ?? '').replace(' Interview', '') || '-'}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">Empty queue</p>
+      )}
+    </div>
+  )
+}
+
+export interface RoomsPanelProps {
+  rooms: Room[]
+  candidates: Candidate[]
+  busyId: string | null
+  onAddRoom: (values: { room_name: string; room_type: RoomType }) => Promise<boolean | void>
+  onUpdateRoom: (room: Room, patch: RoomPatch) => Promise<boolean | void>
+  onDeleteRoom: (room: Room) => void
+}
+
+export default function RoomsPanel({
+  rooms,
+  candidates,
+  busyId,
+  onAddRoom,
+  onUpdateRoom,
+  onDeleteRoom,
+}: RoomsPanelProps) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState<RoomType>('General')
+  const [adding, setAdding] = useState(false)
+  const [interviewerRoomId, setInterviewerRoomId] = useState<string | null>(null)
+  const now = useMinuteClock()
+
+  // Read the room back out of live state rather than keeping a snapshot, so a
+  // save (or another admin's edit) shows up in the open modal immediately.
+  const interviewerRoom = interviewerRoomId
+    ? rooms.find((room) => room.id === interviewerRoomId) ?? null
+    : null
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setAdding(true)
+    try {
+      const ok = await onAddRoom({ room_name: trimmed, room_type: type })
+      // Keep the typed name when the insert failed so it can be retried.
+      if (ok !== false) setName('')
+    } catch {
+      /* onAddRoom surfaces its own error; just keep the field populated */
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <section className="mb-6 border-b border-border pb-6">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Rooms</h2>
+
+        <form className="flex flex-wrap gap-2" onSubmit={handleSubmit}>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="New room name"
+            className="w-40 rounded-md border border-input bg-card px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <select
+            aria-label="New room type"
+            value={type}
+            onChange={(event) => setType(event.target.value as RoomType)}
+            className="rounded-md border border-input bg-card px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            {ROOM_TYPES.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <button
+            type="submit"
+            disabled={adding || !name.trim()}
+            className="rounded-md bg-secondary px-4 py-1.5 text-sm font-medium text-secondary-foreground transition hover:brightness-95 disabled:opacity-50"
+          >
+            {adding ? 'Adding...' : 'Add room'}
+          </button>
+        </form>
+      </div>
+
+      {rooms.length === 0 ? (
+        <p className="rounded-md border border-border bg-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">
+          No rooms yet - add one to start assigning candidates.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {rooms.map((room) => (
+            <RoomCard
+              key={room.id}
+              room={room}
+              candidates={candidates}
+              now={now}
+              busy={busyId === room.id}
+              onUpdateRoom={onUpdateRoom}
+              onDeleteRoom={onDeleteRoom}
+              onShowInterviewer={(target) => setInterviewerRoomId(target.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      <InterviewerModal
+        room={interviewerRoom}
+        saving={Boolean(interviewerRoom) && busyId === interviewerRoom?.id}
+        onSave={async (patch) => (interviewerRoom ? onUpdateRoom(interviewerRoom, patch) : false)}
+        onClose={() => setInterviewerRoomId(null)}
+      />
+    </section>
+  )
+}

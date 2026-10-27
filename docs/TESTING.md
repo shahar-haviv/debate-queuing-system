@@ -12,13 +12,13 @@ just to make a number look better.
 | **End-to-end** | Playwright | `tests/e2e/*.spec.js` | The real UI against the real board, in a real browser | ~60s |
 
 ```bash
-npm test          # logic + components    (357 tests, ~20s)
-npm run test:db   # live database          (110 assertions)
-npm run test:e2e  # browser                (22 tests; 2 opt-in, 3 data-gated)
-npm run test:all  # all three
+bun run test       # logic + components    (357 tests, ~20s)
+bun run test:db   # live database          (110 assertions)
+bun run test:e2e  # browser                (22 tests; 2 opt-in, 3 data-gated)
+bun run test:all  # all three
 ```
 
-`npm run test:coverage` writes an HTML report to `coverage/`.
+`bun run test:coverage` writes an HTML report to `coverage/`.
 
 ---
 
@@ -143,7 +143,7 @@ pinning down precisely:
 
 ### `evaluation.test.js` — the rubric's own wording
 
-The Hebrew in `evaluation.js` is the club's questionnaire, not UI copy: if a word
+The Hebrew in `src/domain/evaluation.ts` is the club's questionnaire, not UI copy: if a word
 changes there, nobody notices until an interviewer reads a subtly different
 question mid-interview. So these assertions are the **literal strings, in order**,
 rather than regexes:
@@ -306,7 +306,7 @@ clock is faked so the boundary is an assertion, not a race.
 ### `autoAssignUi.test.jsx` — the wand, through the real button
 
 `autoAssign.test.js` proves the decision. This proves the wiring around it in
-`Admin.jsx`, which had no coverage at all: that the button reads the **live**
+`Admin.tsx`, which had no coverage at all: that the button reads the **live**
 queue from the database, that the two dead ends produce **different** messages,
 and that a pick lands on the board.
 
@@ -458,7 +458,7 @@ so the page is asserted against the shape the ledger actually produces.
   recorded — no finished room session yet"*, keeps the KPIs at zero, and lists the
   event in the *Recent Movements* table, newest first, so it is obvious the ledger
   is alive.
-- The missing-table error names the fix (`npm run db:push`), because "not
+- The missing-table error names the fix (`bun run db:push`), because "not
   installed" and "network problem" are different problems.
 
 ### `useAnalytics.test.js` — the loader
@@ -561,7 +561,7 @@ run is **read-only**: nothing is created, edited or deleted, so it can be run
 against production at any time, including mid-event.
 
 ```bash
-npm run test:e2e
+bun run test:e2e
 $env:CQ_E2E_MUTATIONS="1"; npx playwright test tests/e2e/conflict-ui.spec.js tests/e2e/room-rubric.spec.js   # opt-in writing scenarios
 ```
 
@@ -652,34 +652,34 @@ Two things are worth proving against live data, and nothing more.
 
 ## Coverage
 
-Measured with `npm run test:coverage` (v8, jsdom):
+Measured with `bun run test:coverage` (v8, jsdom):
 
 | File | Statements | Branches |
 | --- | --- | --- |
-| `src/lib/time.js` | 100% | 100% |
-| `src/lib/conflicts.js` | 100% | 98% |
-| `src/lib/autoAssign.js` | 100% | 95% |
-| `src/lib/rooms.js` | 100% | 89% |
-| `src/lib/evaluation.js` | 100% | 90% |
-| `src/lib/analytics.js` | 100% | 91% |
-| `src/hooks/useAnalytics.js` | 96% | 87% |
-| `src/lib/csv.js` | 98% | 74% |
-| `src/components/EvaluationForm.jsx` | 100% | 87% |
-| `src/components/InterviewerModal.jsx` | 100% | 96% |
-| `src/components/CandidateCard.jsx` | 100% | 96% |
-| `src/components/RoomsPanel.jsx` | 93% | 87% |
-| `src/pages/Analytics.jsx` | 99% | 92% |
-| `src/pages/CandidateView.jsx` | 98% | 91% |
-| `src/pages/RoomView.jsx` | 93% | 79% |
-| `src/pages/Admin.jsx` | 74% | 81% |
+| `src/domain/time.ts` | 100% | 100% |
+| `src/domain/conflicts.ts` | 100% | 98% |
+| `src/domain/autoAssign.ts` | 100% | 95% |
+| `src/domain/rooms.ts` | 100% | 89% |
+| `src/domain/evaluation.ts` | 100% | 94% |
+| `src/domain/analytics.ts` | 100% | 91% |
+| `src/hooks/useAnalytics.ts` | 100% | 92% |
+| `src/domain/csv.ts` | 97% | 74% |
+| `src/components/features/EvaluationForm.tsx` | 100% | 83% |
+| `src/components/features/InterviewerModal.tsx` | 100% | 96% |
+| `src/components/features/CandidateCard.tsx` | 99% | 96% |
+| `src/components/features/RoomsPanel.tsx` | 92% | 84% |
+| `src/pages/Analytics.tsx` | 99% | 84% |
+| `src/pages/CandidateView.tsx` | 100% | 100% |
+| `src/pages/RoomView.tsx` | 92% | 80% |
+| `src/pages/Admin.tsx` | 69% | 77% |
 
 The business logic — the part that can be silently wrong — is effectively fully
-covered. `Admin.jsx` is lower because it is largely a controller: its CSV-import,
+covered. `Admin.tsx` is lower because it is largely a controller: its CSV-import,
 QR and toast handlers are not unit-tested, deliberately. The parts that carry a
 rule — the three lists, the optimistic patches and the Auto-Assign click — *are*
 covered (`dashboardSync.test.jsx`, `autoAssignUi.test.jsx`), and everything else
 is covered from the other direction by the Rule 1–7 suite (which drives the same
-API calls) and by the end-to-end specs. `RoomView.jsx` sits at 93% for the same
+API calls) and by the end-to-end specs. `RoomView.tsx` sits at 92% for the same
 reason: its uncovered branches are the loading/error paths and the Debate-placeholder
 card, which the end-to-end spec exercises instead.
 
@@ -716,7 +716,7 @@ pinned down.
 | 5 | The rubric opens for `Current_Task_Assignment = 'Personal Interview'` | `roomEvaluation.test.jsx` (a Personal Interview shows the form, a Debate Interview does not, an empty room says so); `room-rubric.spec.js` (live, opt-in, and the read-only state checks); `evaluation.test.js` (`PERSONAL_INTERVIEW`) |
 | 5 | The exact Hebrew wording, instructions and 1–5 anchors | `evaluation.test.js` — every label, note and anchor asserted as a literal string, in order |
 | 5 | Required fields enforced; name and serial pre-filled | `evaluation.test.js` (the mandatory list, validation, prefill rules); `roomEvaluation.test.jsx` (a half-filled form writes nothing); `room-rubric.spec.js` (live prefills) |
-| 5 | RTL, scrollable, with the two closing buttons pinned to the bottom | `roomEvaluation.test.jsx` (`dir="rtl"`, both buttons by label, all four parts); `EvaluationForm.jsx`'s `sticky bottom-0` bar; `room-rubric.spec.js` (live `dir="rtl"`) |
+| 5 | RTL, scrollable, with the two closing buttons pinned to the bottom | `roomEvaluation.test.jsx` (`dir="rtl"`, both buttons by label, all four parts); `EvaluationForm.tsx`'s `sticky bottom-0` bar; `room-rubric.spec.js` (live `dir="rtl"`) |
 | 5 | Submitting stores the scores **and** releases the room | `roomEvaluation.test.jsx` (the upsert and the `personal_interview_completed` write); `rules.test.mjs` Rule 3 (the release itself); `room-rubric.spec.js` (live: the row, the types, and the cleared room/task/clock) |
 | 5 | Skipping releases without storing anything | `roomEvaluation.test.jsx` (no upsert, the release still issued, confirmation only when there is typing to lose) |
 | 5 | The evaluation stays **discreet** — admin-facing only | `privacy.test.mjs` (anon cannot read, filter, insert, edit or delete); `public-privacy.spec.js` (the public page never touches it); `room-rubric.spec.js` (an anonymous visit to `/room/:id` lands on the sign-in wall) |
@@ -925,21 +925,21 @@ Test with a phone in one hand: the dispatcher is usually standing up.
     wall. Confirm in the network tab that the page requests `candidate_events`
     only when signed in.
 
-> The ledger records from the moment `npm run db:push` installs it. A dashboard
+> The ledger records from the moment `bun run db:push` installs it. A dashboard
 > that opens empty is correct on a fresh install; the page says so explicitly.
 
 ---
 
 ## Deliberately out of scope
 
-- **`supabase.js`, `logger.js`, `monitoring.js`** are not unit-tested. They are
+- **`src/services/supabase.ts`, `src/core/logger.ts`, `monitoring.js`** are not unit-tested. They are
   side-effectful plumbing whose correctness shows up as working features
   elsewhere; the Debug panel and error toasts are checked by hand.
 - **Concurrent writers.** Two admins assigning the same candidate at the same
   instant is last-write-wins by design. It is exercised by hand (checklist D22),
   not automated, because the outcome is intentionally non-deterministic.
 - **The `allowed_admins` bootstrap**, which requires the service role and is
-  covered by `npm run db:push`'s own verification step.
+  covered by `bun run db:push`'s own verification step.
 - **Load and performance.** 74 candidates and 7 rooms render instantly; the
   design target is a few hundred, and no profiling has been done.
 - **The `evaluations` table is not on the realtime publication.** The room view
@@ -949,6 +949,6 @@ Test with a phone in one hand: the dispatcher is usually standing up.
 - **Exporting the analytics.** The dashboard now aggregates `scores` (average per
   interviewer, digital vs paper), but there is no CSV/Excel download of the
   leaderboard or the ledger yet. Ask and it can be added on top of the same
-  `analytics.js` functions.
+  `src/domain/analytics.ts` functions.
 - **Cross-browser.** Playwright runs Chromium only. The app is plain React and
   Tailwind with no engine-specific CSS, but Firefox/Safari have not been checked.

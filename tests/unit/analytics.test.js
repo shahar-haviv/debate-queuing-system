@@ -23,7 +23,7 @@ import {
   round1,
   rubricScore,
   waitTimes,
-} from '../../src/lib/analytics.js'
+} from '../../src/domain/analytics'
 
 /** 2026-10-26 17:00 UTC, so "minute 0" reads like the start of screening. */
 const BASE = Date.UTC(2026, 9, 26, 17, 0, 0)

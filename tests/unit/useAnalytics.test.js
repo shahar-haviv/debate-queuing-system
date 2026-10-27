@@ -12,7 +12,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { MISSING_LEDGER, useAnalytics } from '../../src/hooks/useAnalytics.js'
+import { MISSING_LEDGER, useAnalytics } from '../../src/hooks/useAnalytics'
 
 const db = vi.hoisted(() => ({
   rows: { candidate_events: [], evaluations: [] },
@@ -25,9 +25,8 @@ const db = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('../../src/lib/supabase', () => ({
-  isConfigured: true,
-  supabase: {
+vi.mock('../../src/services/supabase', () => {
+  const client = {
     from(table) {
       const query = {
         select() {
@@ -47,8 +46,14 @@ vi.mock('../../src/lib/supabase', () => ({
       }
       return query
     },
-  },
-}))
+  }
+
+  return {
+    getSupabaseClient: () => client,
+    createSupabaseClient: () => client,
+    resetSupabaseClient: () => {},
+  }
+})
 
 const ledgerEvent = (index) => ({
   id: index,

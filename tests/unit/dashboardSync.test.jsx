@@ -15,7 +15,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import Admin from '../../src/pages/Admin.jsx'
+import Admin from '../../src/pages/Admin'
 
 /**
  * A tiny observable board, standing in for `useCandidates`.
@@ -108,34 +108,37 @@ vi.mock('../../src/hooks/useCandidates', async () => {
  * echoes the merged row — exactly what PostgREST returns — so the component's
  * post-write reconciliation (`patchLocal(id, data)`) is exercised too.
  */
-vi.mock('../../src/lib/supabase', () => {
+vi.mock('../../src/services/supabase', () => {
   const merged = (patch) => ({ ...board.candidates.find((row) => row.id === patch.__id), ...patch })
   const selectAfterUpdate = (patch) => ({
     single: async () => ({ data: merged(patch), error: null }),
   })
-  return {
-    isConfigured: true,
-    supabase: {
-      from: () => ({
-        update: (patch) => ({
-          eq: (column, value) => {
-            patch.__id = value
-            return { select: () => selectAfterUpdate(patch) }
-          },
-        }),
-        select: () => ({
-          eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
-          not: async () => ({ data: [], error: null }),
-        }),
-        insert: () => ({ select: () => ({ single: async () => ({ data: null, error: null }) }) }),
-        delete: () => ({ eq: async () => ({ error: null }) }),
+  const client = {
+    from: () => ({
+      update: (patch) => ({
+        eq: (column, value) => {
+          patch.__id = value
+          return { select: () => selectAfterUpdate(patch) }
+        },
       }),
-      channel: () => {
-        const channel = { on: () => channel, subscribe: () => channel }
-        return channel
-      },
-      removeChannel: () => {},
+      select: () => ({
+        eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
+        not: async () => ({ data: [], error: null }),
+      }),
+      insert: () => ({ select: () => ({ single: async () => ({ data: null, error: null }) }) }),
+      delete: () => ({ eq: async () => ({ error: null }) }),
+    }),
+    channel: () => {
+      const channel = { on: () => channel, subscribe: () => channel }
+      return channel
     },
+    removeChannel: () => {},
+  }
+
+  return {
+    getSupabaseClient: () => client,
+    createSupabaseClient: () => client,
+    resetSupabaseClient: () => {},
   }
 })
 

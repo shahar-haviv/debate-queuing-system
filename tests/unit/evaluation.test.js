@@ -27,7 +27,7 @@ import {
   questionFor,
   recapRows,
   validateAnswers,
-} from '../../src/lib/evaluation.js'
+} from '../../src/domain/evaluation'
 
 /* ------------------------------ the wording ------------------------------ */
 

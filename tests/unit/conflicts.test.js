@@ -10,7 +10,7 @@ import {
   normalizeInterviewerName,
   parseConstraintList,
   roomInterviewers,
-} from '../../src/lib/conflicts.js'
+} from '../../src/domain/conflicts'
 
 /**
  * A room's panel. Names, or `{ name, phone }` objects, or nothing at all —

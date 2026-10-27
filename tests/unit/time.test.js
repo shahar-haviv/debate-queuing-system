@@ -9,7 +9,7 @@ import {
   normalizeTime,
   nowMinutes,
   parseTimeToMinutes,
-} from '../../src/lib/time.js'
+} from '../../src/domain/time'
 
 describe('parseTimeToMinutes', () => {
   it('reads both padded and unpadded clock times', () => {

@@ -1,18 +1,18 @@
-# Netlify build configuration — Candidate Queue & Dispatch.
+# Netlify build configuration - Candidate Queue & Dispatch.
 #
-# The app is a pure static SPA: `npm run build` emits `dist/`, and the only
-# runtime dependency is Supabase (URL + publishable key are compiled into the
-# bundle from src/lib/supabase.js, so no host environment variables needed).
+# The app is a pure static SPA built with Bun + Vite: `bun run build` typechecks
+# with `tsc` and emits `dist/`. Runtime configuration is compiled into the bundle
+# from VITE_* variables (see .env.example); no host secrets are required.
 
 [build]
-  command = "npm run build"
+  command = "bun run build"
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "22"
+  BUN_VERSION = "1.2.19"
 
 # Single-page app fallback. Every route (/login, /admin, /candidate/:id) must
-# serve index.html so React Router can handle it — otherwise a refresh or a
+# serve index.html so React Router can handle it - otherwise a refresh or a
 # direct visit to any non-root URL 404s. This catch-all is last by Netlify's
 # rules, so real static assets (hashed JS/CSS, /ru-debate.png) still win.
 [[redirects]]

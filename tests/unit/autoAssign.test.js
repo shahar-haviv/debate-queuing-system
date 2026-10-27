@@ -10,7 +10,7 @@ import {
   roomTypeForTask,
   roomsForTask,
   waitingInLine,
-} from '../../src/lib/autoAssign.js'
+} from '../../src/domain/autoAssign'
 
 /** A room with an optional one-person panel: `room('a206', 'A206', 'Debate', 'daniel')`. */
 const room = (id, room_name, room_type, interviewer = null) => ({

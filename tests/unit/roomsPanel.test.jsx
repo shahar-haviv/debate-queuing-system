@@ -11,7 +11,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import RoomsPanel from '../../src/components/RoomsPanel.jsx'
+import RoomsPanel from '../../src/components/features/RoomsPanel'
 
 /** A timestamp `h:m` local time on the fake "today", so no timezone can skew it. */
 const iso = (h, m, s = 0) => new Date(2026, 9, 17, h, m, s).toISOString()

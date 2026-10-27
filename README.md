@@ -2,10 +2,15 @@
 
 A real-time, full-stack queue and dispatch system for candidate interviews.
 
-- **Frontend:** React 19 + Vite + Tailwind CSS v4
+- **Frontend:** React 19 + TypeScript (strict) + Vite + Tailwind CSS v4
+- **Runtime/tooling:** Bun (`bun install`, `bun run …`) — no npm or Node tooling
 - **Backend:** Supabase (Postgres, Auth, Realtime)
 - **Hosting:** Netlify via Git-connected auto-deploy ([`netlify.toml`](./netlify.toml)
   is committed), and equally at home on Vercel or Cloudflare Pages
+
+The layering (core → domain → services → hooks → components → pages), the SOLID
+rules it enforces, and a worked example are in
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 
 ---
 
@@ -36,11 +41,27 @@ A real-time, full-stack queue and dispatch system for candidate interviews.
 
 ---
 
-## 1. Apply the database schema
+## 1. Configure the environment
 
-Your project URL and publishable key are already in `.env`.
+The browser bundle has **no hardcoded project credentials**. Copy the template
+and fill in the two required values:
 
-Now add **one** credential to `.env` so the schema can be applied automatically:
+```bash
+cp .env.example .env
+```
+
+```dotenv
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+Both are read from **Supabase Dashboard → Project Settings → API**. They are
+validated by zod at startup: if either is missing or malformed the app shows a
+configuration screen naming the exact problem instead of booting with a broken
+client. `.env` is git-ignored; never commit it.
+
+The schema script also needs **one** credential in `.env` — a Management API
+token is recommended:
 
 | Option | What to add | Where to get it |
 | --- | --- | --- |
@@ -50,7 +71,7 @@ Now add **one** credential to `.env` so the schema can be applied automatically:
 Then run:
 
 ```bash
-npm run db:push
+bun run db:push
 ```
 
 This applies [`supabase/schema.sql`](./supabase/schema.sql) — tables, enums,
@@ -62,7 +83,7 @@ the tables are reachable through the REST API.
 
 ## 2. Admin account
 
-`npm run db:push` creates the admin login for you, using the `ADMIN_EMAIL` and
+`bun run db:push` creates the admin login for you, using the `ADMIN_EMAIL` and
 `ADMIN_PASSWORD` values in `.env`. The account is created **pre-confirmed**, so
 no verification email is needed, and the schema seed adds the same address to
 `allowed_admins`.
@@ -77,8 +98,8 @@ To add more admins later:
 ## 3. Run locally
 
 ```bash
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 | Route | Purpose |
@@ -116,11 +137,11 @@ build settings typed into the dashboard at all:
 
 ```toml
 [build]
-  command = "npm run build"
+  command = "bun run build"
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "22"
+  BUN_VERSION = "1.2.19"
 
 [[redirects]]
   from = "/*"
@@ -131,9 +152,10 @@ build settings typed into the dashboard at all:
 1. Push this repository to GitHub.
 2. **Add new site → Import an existing project** and pick the repo. Netlify reads
    `netlify.toml` and builds.
-3. No environment variables are needed — the Supabase URL and publishable key fall
-   back to the values in `src/lib/supabase.js`. Set `VITE_SUPABASE_URL` /
-   `VITE_SUPABASE_PUBLISHABLE_KEY` only to point a deploy at a *different* project.
+3. **Site configuration → Environment variables** — add `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_PUBLISHABLE_KEY` (same values as `.env`). These are compiled
+   into the bundle at build time, so they must exist **before** the first deploy;
+   the build otherwise fails the startup validation check.
 4. The `[[redirects]]` rule is what makes the SPA routes work: `/admin`,
    `/room/:roomId` and `/candidate/:id` all have to survive a refresh, and a
    static host would otherwise answer with a 404.
@@ -154,7 +176,7 @@ magic-link sign-ins come back to the right place.
 
 ### Cloudflare Pages
 
-Build command `npm run build`, output directory `dist`. SPA routing is handled
+Build command `bun run build`, output directory `dist`. SPA routing is handled
 automatically when you set the project to a single-page app.
 
 > **Note on free tiers:** Supabase pauses idle projects after ~1 week of
@@ -218,7 +240,7 @@ Each arrived candidate still owing an interview has a **wand button** on their
 card. One click sends them to the room the board can best afford to use, and a
 toast reports where they went: *"Candidate assigned to A206 for Debate Interview."*
 
-The decision is a small pure function in `src/lib/autoAssign.js`, so the rules can
+The decision is a small pure function in `src/domain/autoAssign.ts`, so the rules can
 be read (and tested) without a database or a browser:
 
 1. **Which interviews could they take?** `neededTasks` returns the set of valid
@@ -298,7 +320,7 @@ carries their place in the line — `1st in line`, `2nd in line` … — and the
   the queue.
 
 The computational part is `waitingInLine` / `queuePositions` / `isWaiting` in
-`src/lib/autoAssign.js`; positions are computed from the *whole* board, so
+`src/domain/autoAssign.ts`; positions are computed from the *whole* board, so
 searching does not renumber who is actually next. Inside each room card the
 occupants are listed longest-waiting first, so the interviewer can see who has
 been in that room the longest without doing sums.
@@ -320,7 +342,7 @@ by construction — and the `evaluations` table has **no anonymous grant at all*
 which is what makes the form genuinely discreet rather than merely unlinked.
 
 - **The wording is data, not JSX.** All 22 questions, their subtexts and the 1→5
-  anchor labels live in [`src/lib/evaluation.js`](./src/lib/evaluation.js),
+  anchor labels live in [`src/domain/evaluation.ts`](./src/domain/evaluation.ts),
   transcribed verbatim in Hebrew. Re-wording a question, moving a field between
   mandatory and optional, or changing an anchor is a one-line edit there, and
   `tests/unit/evaluation.test.js` asserts the literal strings — so a stray edit
@@ -437,8 +459,8 @@ chunk downloads only when somebody opens it.
 
 ## Logging & debugging
 
-A small dependency-free logger (`src/lib/logger.js`) plus a Supabase
-middleware (`src/lib/supabase.js`) trace everything that happens:
+A small dependency-free logger (`src/core/logger.ts`) plus a Supabase
+middleware (`src/services/supabase.ts`) trace everything that happens:
 
 ```
 15:14:10.906 DEBUG auth      verify admin (initial) (223ms)
@@ -464,10 +486,10 @@ middleware (`src/lib/supabase.js`) trace everything that happens:
 ## Testing
 
 ```bash
-npm test          # logic + components          (357 tests, jsdom)
-npm run test:db   # live database               (Rules 1–7 + strict privacy)
-npm run test:e2e  # real browser                (Playwright, read-only by default)
-npm run test:all  # all four layers
+bun run test          # logic + components          (357 tests, jsdom)
+bun run test:db       # live database               (Rules 1–7 + strict privacy)
+bun run test:e2e      # real browser                (Playwright, read-only by default)
+bun run test:all      # all four layers
 ```
 
 Four layers, because the rules live in four different places: pure functions and
@@ -537,28 +559,29 @@ checklist for event day** are in [`docs/TESTING.md`](./docs/TESTING.md).
 
 ```
 src/
-  components/     Column, CandidateCard, RoomsPanel, InterviewerModal, modals,
-                  EvaluationForm, toast, guards, BrandMark, ErrorBoundary,
-                  DebugPanel, RouteLogger
-  hooks/          useAuth (session + admin check), useCandidates (data + realtime),
-                  useAnalytics (ledger loader + aggregates)
-  lib/            supabase client + query middleware, logger, csv, time,
-                  autoAssign, conflicts, rooms (in-room ordering),
-                  evaluation (the Hebrew rubric), analytics (ledger maths),
-                  monitoring
+  core/           env (zod), types, constants, logger, monitoring
+  domain/         pure rules: time, conflicts, autoAssign, rooms, csv,
+                  evaluation (the Hebrew rubric), analytics, candidateRules
+  services/       DatabaseService contracts, Supabase adapter + client,
+                  ServicesProvider (dependency injection)
+  hooks/          useCandidates (read model), useQueueActions (writes),
+                  useQueueLogic (derivations), useEvaluations, useCandidate,
+                  useAnalytics, useAuth
+  components/
+    ui/           dumb, Tailwind-only: Button, Card, Modal, Column, Toast,
+                  BrandMark, ConfigBanner, ErrorBoundary, DebugPanel
+    features/     smart: CandidateQueueList, CandidateCard, RoomsPanel,
+                  InterviewerModal, AddEditCandidateModal, QrModal,
+                  EvaluationForm, RequireAdmin, RouteLogger
   pages/          Login, Admin, Analytics, RoomView, CandidateView
 public/
   ru-debate.png   App logo — drop the artwork here (see public/README.md)
 scripts/
-  apply-schema.mjs  `npm run db:push` — applies the schema from the CLI
+  apply-schema.mjs  `bun run db:push` — applies the schema from the CLI
 supabase/
   schema.sql      One-shot database setup (tables, RLS, automation triggers)
 tests/
-  unit/           Vitest — pure logic (time, conflicts, autoAssign, csv, rooms,
-                  evaluation, analytics) and components (Admin's three lists, an
-                  edit reaching the screen, the rooms panel clock/queue, the
-                  Auto-Assign button, CandidateCard, InterviewerModal,
-                  CandidateView, the in-room rubric, and the analytics dashboard)
+  unit/           Vitest — pure logic and components (357 tests)
   db/             Rules 1–7, the privacy guarantees, and the event ledger,
                   against the live project
   e2e/            Playwright — the real UI, read-only unless you opt in
