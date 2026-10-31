@@ -10,7 +10,9 @@ A real-time, full-stack queue and dispatch system for candidate interviews.
 
 The layering (core → domain → services → hooks → components → pages), the SOLID
 rules it enforces, and a worked example are in
-[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). The Netlify + Supabase
+production checklist — environment scopes, Auth URLs, preview policy, headers
+and verification — is in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
 
 ---
 
@@ -153,16 +155,18 @@ build settings typed into the dashboard at all:
 2. **Add new site → Import an existing project** and pick the repo. Netlify reads
    `netlify.toml` and builds.
 3. **Site configuration → Environment variables** — add `VITE_SUPABASE_URL` and
-   `VITE_SUPABASE_PUBLISHABLE_KEY` (same values as `.env`). These are compiled
-   into the bundle at build time, so they must exist **before** the first deploy;
-   the build otherwise fails the startup validation check.
+   `VITE_SUPABASE_PUBLISHABLE_KEY` (same values as `.env`), scope **Builds**,
+   context **Production**. Vite inlines them at build time, so a new deploy is
+   required. Production-only keeps deploy previews away from the live board; the
+   full policy is in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
 4. The `[[redirects]]` rule is what makes the SPA routes work: `/admin`,
    `/room/:roomId` and `/candidate/:id` all have to survive a refresh, and a
    static host would otherwise answer with a 404.
 
-After that, **every push to `main` redeploys automatically** (~1 minute). Then set
-**Supabase → Authentication → URL Configuration → Site URL** to the Netlify URL so
-magic-link sign-ins come back to the right place.
+After that, **every push to `main` redeploys automatically** (~1 minute). In
+**Supabase → Authentication → URL Configuration**, set the **Site URL** to the
+Netlify URL and allow the local dev origin (`http://localhost:5173/**`) as a
+redirect, so magic-link sign-ins return to the right place in both environments.
 
 ### Vercel
 

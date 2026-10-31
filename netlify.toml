@@ -19,3 +19,29 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# ---------------------------------------------------------------------------
+# Response headers.
+#
+# A static bundle has two caching rules: Vite's hashed assets are immutable,
+# and every HTML document must be revalidated so a new deploy is picked up.
+# The document is never framed, and the browser is told not to sniff types.
+#
+# No CSP here on purpose: Tailwind/Recharts emit inline styles and the
+# Supabase client needs https://*.supabase.co and wss://*.supabase.co in
+# connect-src. Add a tested CSP as its own change, not as a deploy-day guess.
+# ---------------------------------------------------------------------------
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
