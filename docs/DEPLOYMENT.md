@@ -54,8 +54,16 @@ previews** context — never point a preview at production.
 ```bash
 netlify env:set VITE_SUPABASE_URL "https://<ref>.supabase.co" --scope builds --context production
 netlify env:set VITE_SUPABASE_PUBLISHABLE_KEY "sb_publishable_..." --scope builds --context production
-netlify deploys:trigger --prod
 ```
+
+Then push a commit, or use **Deploys → Trigger deploy** in the UI. There is no
+separate “deploy” command for a Git-connected site.
+
+> **Free plan:** Netlify rejects explicit `scopes` over the API with
+> `403 Upgrade your Netlify account to set specific scopes`. Variables created
+> without a scope use the default scopes. That is acceptable here because both
+> values are public and Vite reads them at build time; scope them to **Builds**
+> when the plan allows it.
 
 Environment variables are applied to **new builds only**. Editing a variable
 does not change an existing deploy.
