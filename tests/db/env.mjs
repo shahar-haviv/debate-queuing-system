@@ -59,11 +59,43 @@ export async function rest(path, { method = 'GET', body, prefer, key = SECRET_KE
 }
 
 export const select = (path) => rest(path)
-export const insertOne = (row) =>
-  rest('candidates', { method: 'POST', prefer: 'return=representation', body: row }).then((r) => ({
-    ...r,
-    row: Array.isArray(r.data) ? r.data[0] : r.data,
-  }))
+
+/**
+ * Every operational row now belongs to an event. The live project keeps its
+ * migrated legacy event; a fresh project gets one on demand, so these scripts
+ * stay runnable against either.
+ */
+let defaultEventId = null
+export async function getDefaultEventId() {
+  if (defaultEventId) return defaultEventId
+
+  const listed = await rest('events?select=id&order=created_at.asc&limit=1')
+  defaultEventId = listed.data?.[0]?.id ?? null
+  if (defaultEventId) return defaultEventId
+
+  const created = await rest('events', {
+    method: 'POST',
+    prefer: 'return=representation',
+    body: {
+      name: `${PREFIX}DEFAULT-EVENT`,
+      date: new Date().toISOString().slice(0, 10),
+      status: 'Active',
+      notes: 'Created by the database test harness.',
+    },
+  })
+  defaultEventId = created.data?.[0]?.id ?? null
+  return defaultEventId
+}
+
+export async function insertOne(row) {
+  const eventId = row.event_id ?? (await getDefaultEventId())
+  const response = await rest('candidates', {
+    method: 'POST',
+    prefer: 'return=representation',
+    body: { ...row, event_id: eventId },
+  })
+  return { ...response, row: Array.isArray(response.data) ? response.data[0] : response.data }
+}
 
 export const patchCandidate = (id, patch) => rest(`candidates?id=eq.${id}`, { method: 'PATCH', body: patch })
 export const readCandidate = (id) =>
@@ -86,12 +118,14 @@ export function roomPayload(name, room_type, interviewers = []) {
   return { room_name: name, room_type, interviewers: panel }
 }
 
-export function createRoom(name, room_type, interviewers = []) {
-  return rest('rooms', {
+export async function createRoom(name, room_type, interviewers = []) {
+  const eventId = await getDefaultEventId()
+  const response = await rest('rooms', {
     method: 'POST',
     prefer: 'return=representation',
-    body: roomPayload(name, room_type, interviewers),
-  }).then((r) => ({ ...r, row: Array.isArray(r.data) ? r.data[0] : r.data }))
+    body: { ...roomPayload(name, room_type, interviewers), event_id: eventId },
+  })
+  return { ...response, row: Array.isArray(response.data) ? response.data[0] : response.data }
 }
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))

@@ -10,7 +10,16 @@
  *
  *   npm run test:db
  */
-import { ANON_KEY, BASE, cleanupScratch, configured, harness, rest, SECRET_KEY } from './env.mjs'
+import {
+  ANON_KEY,
+  BASE,
+  cleanupScratch,
+  configured,
+  getDefaultEventId,
+  harness,
+  rest,
+  SECRET_KEY,
+} from './env.mjs'
 
 if (!configured) {
   console.log('ℹ️  No Supabase credentials in .env — skipping the privacy tests.')
@@ -18,6 +27,7 @@ if (!configured) {
 }
 
 const t = harness('Strict privacy (live database)')
+const defaultEventId = await getDefaultEventId()
 
 /** Call the REST API as an anonymous visitor. */
 const asAnon = (path, init = {}) => rest(path, { ...init, key: ANON_KEY, bearer: ANON_KEY })
@@ -117,7 +127,12 @@ try {
     const scratch = await rest('candidates', {
       method: 'POST',
       prefer: 'return=representation',
-      body: { name: 'ZZQA-EVAL-CAND', serial_number: 'ZZQA-EVAL-CAND', has_arrived: true },
+      body: {
+        name: 'ZZQA-EVAL-CAND',
+        serial_number: 'ZZQA-EVAL-CAND',
+        has_arrived: true,
+        event_id: defaultEventId,
+      },
     })
     const scratchId = scratch.data?.[0]?.id
 
@@ -164,7 +179,12 @@ try {
     const victim = await rest('rooms', {
       method: 'POST',
       prefer: 'return=representation',
-      body: { room_name: 'ZZQA-ANON-VICTIM', room_type: 'Debate', interviewers: [{ name: 'safe', phone: null }] },
+      body: {
+        room_name: 'ZZQA-ANON-VICTIM',
+        room_type: 'Debate',
+        interviewers: [{ name: 'safe', phone: null }],
+        event_id: defaultEventId,
+      },
     })
     const victimId = victim.data?.[0]?.id
 
@@ -188,7 +208,12 @@ try {
     const tempCand = await rest('candidates', {
       method: 'POST',
       prefer: 'return=representation',
-      body: { name: 'ZZQA-ANON-CAND', serial_number: 'ZZQA-ANON-CAND', has_arrived: false },
+      body: {
+        name: 'ZZQA-ANON-CAND',
+        serial_number: 'ZZQA-ANON-CAND',
+        has_arrived: false,
+        event_id: defaultEventId,
+      },
     })
     const candId = tempCand.data?.[0]?.id
 
@@ -204,7 +229,10 @@ try {
       await rest(`candidates?id=eq.${candId}`, { method: 'DELETE' })
     }
 
-    const createRoom = await asAnon('rooms', { method: 'POST', body: { room_name: 'ZZQA-ANON', room_type: 'Debate' } })
+    const createRoom = await asAnon('rooms', {
+      method: 'POST',
+      body: { room_name: 'ZZQA-ANON', room_type: 'Debate', event_id: defaultEventId },
+    })
     t.ok('anon cannot create a room', createRoom.status >= 400, `status ${createRoom.status}`)
 
     const insertCandidate = await asAnon('candidates', {

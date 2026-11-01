@@ -19,6 +19,7 @@ import type {
   Candidate,
   Evaluation,
   RecapSection,
+  Room,
   RoomType,
   ToastMessage,
   ToastTone,
@@ -40,6 +41,7 @@ import {
 import { useAuth } from '../hooks/useAuth'
 import { useCandidates } from '../hooks/useCandidates'
 import { useEvaluations } from '../hooks/useEvaluations'
+import { useRoom } from '../hooks/useRoom'
 import EvaluationForm from '../components/features/EvaluationForm'
 import BrandMark from '../components/ui/BrandMark'
 import Toast from '../components/ui/Toast'
@@ -141,8 +143,9 @@ export default function RoomView() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
-  const { candidates, rooms, loading, error } = useCandidates()
-  const { evaluations, load: loadEvaluations, save, release } = useEvaluations(roomId)
+  const { room: roomMeta, loading: roomMetaLoading, error: roomMetaError } = useRoom(roomId)
+  const { candidates, rooms, loading: boardLoading, error: boardError } = useCandidates(roomMeta?.event_id)
+  const { evaluations, load: loadEvaluations, save, release } = useEvaluations(roomMeta?.event_id, roomId)
 
   const [answers, setAnswers] = useState<Answers>(() => emptyAnswers(PERSONAL_INTERVIEW_FORM))
   const [errors, setErrors] = useState<ValidationProblems>({})
@@ -151,7 +154,22 @@ export default function RoomView() {
   const [toast, setToast] = useState<ToastMessage | null>(null)
   const [now, setNow] = useState(() => Date.now())
 
-  const room = useMemo(() => rooms.find((entry) => entry.id === roomId) ?? null, [rooms, roomId])
+  const loading = roomMetaLoading || boardLoading
+  const error = boardError || roomMetaError
+
+  const room = useMemo<Room | null>(() => {
+    const live = rooms.find((entry) => entry.id === roomId)
+    if (live) return live
+    const fallback = roomMeta
+    if (!fallback) return null
+    return {
+      id: fallback.id,
+      event_id: fallback.event_id,
+      room_name: fallback.room_name,
+      room_type: fallback.room_type,
+      interviewers: [],
+    }
+  }, [roomId, roomMeta, rooms])
   const seated = useMemo(() => (room ? occupantsOf(candidates, room.id) : []), [candidates, room])
   // Longest-waiting first, so the person at the top of the room's queue is the
   // one the rubric is about - the same order the dispatcher's rooms panel lists.
@@ -171,8 +189,8 @@ export default function RoomView() {
   }, [])
 
   useEffect(() => {
-    log.info('room view mounted', { roomId, room: room?.room_name, user: user?.email })
-  }, [roomId, room?.room_name, user?.email])
+    log.info('room view mounted', { roomId, eventId: roomMeta?.event_id, room: room?.room_name, user: user?.email })
+  }, [roomId, roomMeta?.event_id, room?.room_name, user?.email])
 
   /* ------------------------------ the answers ------------------------------ */
   /*
@@ -342,7 +360,7 @@ export default function RoomView() {
 
         <div className="flex items-center gap-2">
           <Link
-            to="/admin"
+            to={roomMeta ? `/admin/event/${roomMeta.event_id}/queue` : '/admin'}
             className="rounded-md border border-input bg-card px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted"
           >
             Dispatch board

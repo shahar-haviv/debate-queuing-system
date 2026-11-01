@@ -58,42 +58,51 @@ export interface QueueActions {
   choosePlacement: (candidate: QueueCandidate, rooms: Room[]) => Promise<PlacementOutcome>
 }
 
-export function useQueueActions(): QueueActions {
+export function useQueueActions(eventId: string | undefined): QueueActions {
   const { candidates: candidateRepo, rooms: roomRepo } = useServices()
+
+  const event = useCallback(() => {
+    if (!eventId) throw new Error('No event is selected.')
+    return eventId
+  }, [eventId])
 
   const patchCandidate = useCallback(
     async (id: string, patch: CandidatePatch) => {
-      log.debug('patch candidate', { id, patch })
+      if (!eventId) throw new Error('No event is selected.')
+      log.debug('patch candidate', { eventId, id, patch })
       return candidateRepo.update(id, patch)
     },
-    [candidateRepo],
+    [candidateRepo, eventId],
   )
 
   const saveCandidate = useCallback(
     async (values: NewCandidate | CandidatePatch, id?: string) => {
       if (id) {
-        log.info('update candidate', { id })
+        if (!eventId) throw new Error('No event is selected.')
+        log.info('update candidate', { eventId, id })
         return candidateRepo.update(id, values as CandidatePatch)
       }
-      log.info('add candidate')
-      return candidateRepo.create(values as NewCandidate)
+      log.info('add candidate', { eventId })
+      return candidateRepo.create(event(), values as NewCandidate)
     },
-    [candidateRepo],
+    [candidateRepo, event, eventId],
   )
 
   const deleteCandidate = useCallback(
     async (id: string) => {
-      log.info('delete candidate', { id })
+      if (!eventId) throw new Error('No event is selected.')
+      log.info('delete candidate', { eventId, id })
       await candidateRepo.remove(id)
     },
-    [candidateRepo],
+    [candidateRepo, eventId],
   )
 
   const importCandidates = useCallback(
     async (rows: NewCandidate[]): Promise<ImportResult> => {
+      const scope = event()
       // The keys come from the database, not from local state, so a fast
       // double-import cannot slip a duplicate through on a stale snapshot.
-      const existingRows = await candidateRepo.listDedupeRows()
+      const existingRows = await candidateRepo.listDedupeRows(scope)
       const existing = new Set(existingRows.map((row) => dedupeKey(row)))
       const seen = new Set<string>()
       const fresh: NewCandidate[] = []
@@ -111,35 +120,37 @@ export function useQueueActions(): QueueActions {
 
       if (!fresh.length) return { imported: 0, duplicates }
 
-      const created = await candidateRepo.importMany(fresh)
-      log.info('csv import complete', { imported: created.length, duplicates })
+      const created = await candidateRepo.importMany(scope, fresh)
+      log.info('csv import complete', { eventId: scope, imported: created.length, duplicates })
       return { imported: created.length, duplicates }
     },
-    [candidateRepo],
+    [candidateRepo, event],
   )
 
   const createRoom = useCallback(
     async (values: NewRoom) => {
-      log.info('add room', { name: values.room_name, type: values.room_type })
-      return roomRepo.create(values)
+      log.info('add room', { eventId, name: values.room_name, type: values.room_type })
+      return roomRepo.create(event(), values)
     },
-    [roomRepo],
+    [event, eventId, roomRepo],
   )
 
   const updateRoom = useCallback(
     async (id: string, patch: RoomPatch) => {
-      log.info('update room', { id, patch })
+      if (!eventId) throw new Error('No event is selected.')
+      log.info('update room', { eventId, id, patch })
       return roomRepo.update(id, patch)
     },
-    [roomRepo],
+    [eventId, roomRepo],
   )
 
   const deleteRoom = useCallback(
     async (id: string) => {
-      log.info('delete room', { id })
+      if (!eventId) throw new Error('No event is selected.')
+      log.info('delete room', { eventId, id })
       await roomRepo.remove(id)
     },
-    [roomRepo],
+    [eventId, roomRepo],
   )
 
   /**
@@ -165,7 +176,8 @@ export function useQueueActions(): QueueActions {
 
       let assignments
       try {
-        assignments = await candidateRepo.listAssignments()
+        if (!eventId) throw new Error('No event is selected.')
+        assignments = await candidateRepo.listAssignments(eventId)
       } catch (cause) {
         return { reason: 'error', message: cause instanceof Error ? cause.message : 'Could not read the queue.' }
       }
@@ -184,7 +196,7 @@ export function useQueueActions(): QueueActions {
 
       return { reason: 'ok', ...placement }
     },
-    [candidateRepo],
+    [candidateRepo, eventId],
   )
 
   return {

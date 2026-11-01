@@ -12,9 +12,11 @@ import type {
   CandidateDedupeRow,
   CandidateEvent,
   Evaluation,
-  NewCandidate,
+  EventPatch,
+  EventSummary,
   NewEvaluation,
-  NewRoom,
+  NewEvent,
+  QueueEvent,
   Room,
   RoomPatch,
 } from '../core/types'
@@ -27,11 +29,13 @@ import type {
   CandidateRepository,
   DatabaseService,
   EvaluationRepository,
+  EventRepository,
   LedgerRepository,
   PublicCandidate,
   PublicRoom,
   RealtimeGateway,
   RoomRepository,
+  RoomWithEvent,
 } from './database'
 
 const log = createLogger('db:service')
@@ -56,10 +60,32 @@ function raise(error: { message: string; code?: string }): never {
 function toRoom(row: Record<string, unknown>): Room {
   return {
     id: String(row.id),
+    event_id: String(row.event_id ?? ''),
     room_name: String(row.room_name ?? ''),
     room_type: (row.room_type as RoomType) ?? 'General',
     interviewers: cleanInterviewerRows(row.interviewers),
   }
+}
+
+function toEvent(row: Record<string, unknown>): QueueEvent {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ''),
+    date: String(row.date ?? ''),
+    status: row.status === 'Active' || row.status === 'Completed' ? row.status : 'Draft',
+    notes: String(row.notes ?? ''),
+    created_at: String(row.created_at ?? ''),
+  }
+}
+
+/** PostgREST returns `[{ count: n }]` for an embedded aggregate. */
+function embeddedCount(value: unknown): number {
+  if (Array.isArray(value)) {
+    const first = value[0] as { count?: unknown } | undefined
+    return Number(first?.count ?? 0)
+  }
+  if (value && typeof value === 'object') return Number((value as { count?: unknown }).count ?? 0)
+  return 0
 }
 
 function toCandidate(row: Record<string, unknown>): Candidate {
@@ -75,11 +101,13 @@ async function fetchAll<T>(
   client: SupabaseClient,
   table: string,
   order: string[],
+  eventId?: string,
 ): Promise<T[]> {
   const rows: T[] = []
 
   for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
     let query = client.from(table).select('*')
+    if (eventId) query = query.eq('event_id', eventId)
     for (const column of order) query = query.order(column, { ascending: true })
 
     const { data, error } = await query.range(from, from + PAGE_SIZE - 1)
@@ -95,29 +123,72 @@ async function fetchAll<T>(
 export function createSupabaseDatabase(getClient: () => SupabaseClient): DatabaseService {
   const db = (): SupabaseClient => getClient()
 
+  const events: EventRepository = {
+    async listSummaries() {
+      const { data, error } = await db()
+        .from('events')
+        .select('*, candidates(count), rooms(count)')
+        .order('date', { ascending: true })
+        .order('created_at', { ascending: true })
+      if (error) raise(error)
+
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        ...toEvent(row),
+        candidate_count: embeddedCount(row.candidates),
+        room_count: embeddedCount(row.rooms),
+      })) satisfies EventSummary[]
+    },
+
+    async findById(id) {
+      const { data, error } = await db().from('events').select('*').eq('id', id).maybeSingle()
+      if (error) raise(error)
+      return data ? toEvent(data as Record<string, unknown>) : null
+    },
+
+    async create(input: NewEvent) {
+      const { data, error } = await db().from('events').insert(input).select().single()
+      if (error) raise(error)
+      return toEvent(data as Record<string, unknown>)
+    },
+
+    async update(id, patch: EventPatch) {
+      const { data, error } = await db().from('events').update(patch).eq('id', id).select().single()
+      if (error) raise(error)
+      return toEvent(data as Record<string, unknown>)
+    },
+
+    async remove(id) {
+      const { error } = await db().from('events').delete().eq('id', id)
+      if (error) raise(error)
+    },
+  }
+
   const candidates: CandidateRepository = {
-    async list() {
+    async list(eventId) {
       const { data, error } = await db()
         .from('candidates')
         .select('*')
+        .eq('event_id', eventId)
         .order('created_at', { ascending: true })
       if (error) raise(error)
       return ((data ?? []) as Record<string, unknown>[]).map(toCandidate)
     },
 
-    async listAssignments() {
+    async listAssignments(eventId) {
       const { data, error } = await db()
         .from('candidates')
         .select('id, assigned_room')
+        .eq('event_id', eventId)
         .not('assigned_room', 'is', null)
       if (error) raise(error)
       return (data ?? []) as CandidateAssignment[]
     },
 
-    async listDedupeRows() {
+    async listDedupeRows(eventId) {
       const { data, error } = await db()
         .from('candidates')
         .select('serial_number, name, planned_time, phone_number')
+        .eq('event_id', eventId)
       if (error) raise(error)
       return (data ?? []) as CandidateDedupeRow[]
     },
@@ -140,8 +211,12 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
       return (data as PublicCandidate | null) ?? null
     },
 
-    async create(input: NewCandidate) {
-      const { data, error } = await db().from('candidates').insert(input).select().single()
+    async create(eventId, input) {
+      const { data, error } = await db()
+        .from('candidates')
+        .insert({ ...input, event_id: eventId })
+        .select()
+        .single()
       if (error) raise(error)
       return toCandidate(data as Record<string, unknown>)
     },
@@ -162,16 +237,24 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
       if (error) raise(error)
     },
 
-    async importMany(rows: NewCandidate[]) {
-      const { data, error } = await db().from('candidates').insert(rows).select()
+    async importMany(eventId, rows) {
+      if (!rows.length) return []
+      const { data, error } = await db()
+        .from('candidates')
+        .insert(rows.map((row) => ({ ...row, event_id: eventId })))
+        .select()
       if (error) raise(error)
       return ((data ?? []) as Record<string, unknown>[]).map(toCandidate)
     },
   }
 
   const rooms: RoomRepository = {
-    async list() {
-      const { data, error } = await db().from('rooms').select('*').order('room_name', { ascending: true })
+    async list(eventId) {
+      const { data, error } = await db()
+        .from('rooms')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('room_name', { ascending: true })
       if (error) raise(error)
       return ((data ?? []) as Record<string, unknown>[]).map(toRoom)
     },
@@ -186,10 +269,34 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
       return (data as PublicRoom | null) ?? null
     },
 
-    async create(input: NewRoom) {
-      const { data, error } = await db().from('rooms').insert(input).select().single()
+    async findByIdWithEvent(id) {
+      const { data, error } = await db()
+        .from('rooms')
+        .select('id, room_name, room_type, event_id')
+        .eq('id', id)
+        .maybeSingle()
+      if (error) raise(error)
+      return (data as RoomWithEvent | null) ?? null
+    },
+
+    async create(eventId, input) {
+      const { data, error } = await db()
+        .from('rooms')
+        .insert({ ...input, event_id: eventId })
+        .select()
+        .single()
       if (error) raise(error)
       return toRoom(data as Record<string, unknown>)
+    },
+
+    async createMany(eventId, inputs) {
+      if (!inputs.length) return []
+      const { data, error } = await db()
+        .from('rooms')
+        .insert(inputs.map((input) => ({ ...input, event_id: eventId })))
+        .select()
+      if (error) raise(error)
+      return ((data ?? []) as Record<string, unknown>[]).map(toRoom)
     },
 
     async update(id, patch: RoomPatch) {
@@ -205,10 +312,13 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
   }
 
   const evaluations: EvaluationRepository = {
-    async listByRoom(roomId) {
+    async listByRoom(eventId, roomId) {
       const { data, error } = await db()
         .from('evaluations')
-        .select('id, candidate_id, task, interviewer_name, scores, created_at, candidate:candidates(name, serial_number)')
+        .select(
+          'id, event_id, candidate_id, task, interviewer_name, scores, created_at, candidate:candidates(name, serial_number)',
+        )
+        .eq('event_id', eventId)
         .eq('room_id', roomId)
         .order('created_at', { ascending: false })
         .limit(25)
@@ -225,12 +335,12 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
   }
 
   const ledger: LedgerRepository = {
-    async load() {
+    async load(eventId) {
       const [events, rubrics] = await Promise.all([
-        fetchAll<CandidateEvent>(db(), 'candidate_events', ['at', 'id']),
-        fetchAll<Evaluation>(db(), 'evaluations', ['created_at']),
+        fetchAll<CandidateEvent>(db(), 'candidate_events', ['at', 'id'], eventId),
+        fetchAll<Evaluation>(db(), 'evaluations', ['created_at'], eventId),
       ])
-      log.debug('ledger loaded', { events: events.length, evaluations: rubrics.length })
+      log.debug('ledger loaded', { eventId, events: events.length, evaluations: rubrics.length })
       return { events, evaluations: rubrics }
     },
   }
@@ -279,12 +389,17 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
   }
 
   const realtime: RealtimeGateway = {
-    subscribeBoard(handlers) {
+    subscribeBoard(eventId, handlers) {
       const channel = db()
-        .channel('queue-live')
+        .channel(`queue-live-${eventId}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'candidates' },
+          {
+            event: '*',
+            schema: 'public',
+            table: 'candidates',
+            filter: `event_id=eq.${eventId}`,
+          },
           (payload: { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> }) => {
             const row = payload.new as unknown as Candidate
             const previous = payload.old as unknown as Partial<Candidate>
@@ -293,7 +408,12 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
         )
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'rooms' },
+          {
+            event: '*',
+            schema: 'public',
+            table: 'rooms',
+            filter: `event_id=eq.${eventId}`,
+          },
           (payload: { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> }) => {
             handlers.onRoom(
               payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE',
@@ -328,7 +448,7 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
     },
   }
 
-  return { candidates, rooms, evaluations, ledger, auth, realtime }
+  return { events, candidates, rooms, evaluations, ledger, auth, realtime }
 }
 
 export { MISSING_TABLE }

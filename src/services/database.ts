@@ -17,9 +17,13 @@ import type {
   CandidateEvent,
   CandidatePatch,
   Evaluation,
+  EventPatch,
+  EventSummary,
   NewCandidate,
   NewEvaluation,
+  NewEvent,
   NewRoom,
+  QueueEvent,
   Room,
   RoomPatch,
 } from '../core/types'
@@ -55,47 +59,64 @@ export interface PublicRoom {
   room_type: Room['room_type']
 }
 
+/** The room id -> event lookup the staff room page needs before it can load a board. */
+export interface RoomWithEvent extends PublicRoom {
+  event_id: string
+}
+
 export interface RealtimeGateway {
-  /** Subscribe to candidates + rooms on one channel; returns an unsubscribe. */
-  subscribeBoard: (handlers: BoardRealtimeHandlers) => () => void
+  /** Subscribe to one event's candidates + rooms; returns an unsubscribe. */
+  subscribeBoard: (eventId: string, handlers: BoardRealtimeHandlers) => () => void
   /** The public status page: its own candidate, plus any room change. */
   subscribeCandidate: (id: string, onChange: () => void) => () => void
 }
 
 /* ------------------------------ repositories ------------------------------ */
 
+export interface EventRepository {
+  listSummaries: () => Promise<EventSummary[]>
+  findById: (id: string) => Promise<QueueEvent | null>
+  create: (input: NewEvent) => Promise<QueueEvent>
+  update: (id: string, patch: EventPatch) => Promise<QueueEvent>
+  /** Used only to roll back a half-created planner draft. */
+  remove: (id: string) => Promise<void>
+}
+
 export interface CandidateRepository {
-  list: () => Promise<Candidate[]>
+  list: (eventId: string) => Promise<Candidate[]>
   /** Only `id` + `assigned_room`, for the load-balancing query. */
-  listAssignments: () => Promise<CandidateAssignment[]>
+  listAssignments: (eventId: string) => Promise<CandidateAssignment[]>
   /** Only the duplicate-detection columns used by CSV import. */
-  listDedupeRows: () => Promise<CandidateDedupeRow[]>
+  listDedupeRows: (eventId: string) => Promise<CandidateDedupeRow[]>
   findById: (id: string) => Promise<Candidate | null>
   /** The public screen's projection: no phone number, no serial number. */
   findPublicById: (id: string) => Promise<PublicCandidate | null>
-  create: (input: NewCandidate) => Promise<Candidate>
+  create: (eventId: string, input: NewCandidate) => Promise<Candidate>
   update: (id: string, patch: CandidatePatch) => Promise<Candidate>
   remove: (id: string) => Promise<void>
-  importMany: (rows: NewCandidate[]) => Promise<Candidate[]>
+  importMany: (eventId: string, rows: NewCandidate[]) => Promise<Candidate[]>
 }
 
 export interface RoomRepository {
-  list: () => Promise<Room[]>
+  list: (eventId: string) => Promise<Room[]>
   findById: (id: string) => Promise<PublicRoom | null>
-  create: (input: NewRoom) => Promise<Room>
+  /** Resolves which event a staff room link belongs to. */
+  findByIdWithEvent: (id: string) => Promise<RoomWithEvent | null>
+  create: (eventId: string, input: NewRoom) => Promise<Room>
+  createMany: (eventId: string, inputs: NewRoom[]) => Promise<Room[]>
   update: (id: string, patch: RoomPatch) => Promise<Room>
   remove: (id: string) => Promise<void>
 }
 
 export interface EvaluationRepository {
-  listByRoom: (roomId: string) => Promise<Evaluation[]>
+  listByRoom: (eventId: string, roomId: string) => Promise<Evaluation[]>
   /** One rubric per candidate + task; a second submission edits the first. */
   upsert: (input: NewEvaluation) => Promise<void>
 }
 
 /** The append-only movement ledger plus the rubrics used for attribution. */
 export interface LedgerRepository {
-  load: () => Promise<{ events: CandidateEvent[]; evaluations: Evaluation[] }>
+  load: (eventId: string) => Promise<{ events: CandidateEvent[]; evaluations: Evaluation[] }>
 }
 
 /* --------------------------------- auth ---------------------------------- */
@@ -122,6 +143,7 @@ export interface AuthGateway {
 /* ------------------------------- container -------------------------------- */
 
 export interface DatabaseService {
+  events: EventRepository
   candidates: CandidateRepository
   rooms: RoomRepository
   evaluations: EvaluationRepository

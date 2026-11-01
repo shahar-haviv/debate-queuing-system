@@ -61,6 +61,23 @@ vi.mock('../../src/hooks/useAuth', () => ({
   useAuth: () => ({ user: { email: 'admin@example.com' }, signOut: async () => {} }),
 }))
 
+vi.mock('../../src/hooks/useRoom', async () => {
+  const { useParams } = await import('react-router-dom')
+  return {
+    useRoom: () => {
+      const { roomId } = useParams()
+      const found = roomId !== 'gone'
+      return {
+        room: found
+          ? { id: roomId, room_name: 'CL05', room_type: 'Personal', event_id: 'event-1' }
+          : null,
+        loading: false,
+        error: found ? '' : 'Room not found. It may have been deleted.',
+      }
+    },
+  }
+})
+
 vi.mock('../../src/hooks/useCandidates', async () => {
   const { useSyncExternalStore } = await import('react')
   return {

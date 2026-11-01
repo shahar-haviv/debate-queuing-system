@@ -10,7 +10,7 @@
  * neither streamed nor fetched, so the row would stay invisible until a manual
  * refresh.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Candidate, CandidatePatch, Room, RoomPatch } from '../core/types'
 import { createLogger } from '../core/logger'
 import { useServices } from '../services/container'
@@ -38,7 +38,7 @@ export interface CandidatesState {
   removeRoomLocal: (id: string) => void
 }
 
-export function useCandidates(deps: CandidatesDeps = {}): CandidatesState {
+export function useCandidates(eventId: string | undefined, deps: CandidatesDeps = {}): CandidatesState {
   const services = useServices()
   const candidateRepo = deps.candidates ?? services.candidates
   const roomRepo = deps.rooms ?? services.rooms
@@ -48,35 +48,64 @@ export function useCandidates(deps: CandidatesDeps = {}): CandidatesState {
   const [rooms, setRooms] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const eventIdRef = useRef(eventId)
+  eventIdRef.current = eventId
 
   const reload = useCallback(
     async (reason = 'manual') => {
+      if (!eventId) {
+        setCandidates([])
+        setRooms([])
+        setLoading(false)
+        return
+      }
+
+      const requestedEvent = eventId
       const done = log.time(`load snapshot (${reason})`)
       try {
-        const [nextCandidates, nextRooms] = await Promise.all([candidateRepo.list(), roomRepo.list()])
+        const [nextCandidates, nextRooms] = await Promise.all([
+          candidateRepo.list(eventId),
+          roomRepo.list(eventId),
+        ])
+        if (eventIdRef.current !== requestedEvent) return
         setError('')
         setCandidates(nextCandidates)
         setRooms(nextRooms)
-        done({ candidates: nextCandidates.length, rooms: nextRooms.length })
+        done({ event: eventId, candidates: nextCandidates.length, rooms: nextRooms.length })
       } catch (cause) {
+        if (eventIdRef.current !== requestedEvent) return
         const message = cause instanceof Error ? cause.message : 'Failed to load data.'
-        log.error('snapshot failed', { message, cause })
+        log.error('snapshot failed', { eventId, message, cause })
         setError(message)
       } finally {
-        setLoading(false)
+        if (eventIdRef.current === requestedEvent) setLoading(false)
       }
     },
-    [candidateRepo, roomRepo],
+    [candidateRepo, eventId, roomRepo],
   )
 
   useEffect(() => {
-    let active = true
+    if (!eventId) {
+      setCandidates([])
+      setRooms([])
+      setError('')
+      setLoading(false)
+      return
+    }
 
-    const unsubscribe = realtime.subscribeBoard({
+    let active = true
+    setCandidates([])
+    setRooms([])
+    setError('')
+    setLoading(true)
+
+    const unsubscribe = realtime.subscribeBoard(eventId, {
       onCandidate(event, row, previous) {
+        if (!active) return
         const id = row?.id ?? previous?.id
-        log.debug(`realtime candidates ${event}`, { id, name: row?.name })
+        log.debug(`realtime candidates ${event}`, { eventId, id, name: row?.name })
         if (!id) return
+        if (row?.event_id && row.event_id !== eventId) return
 
         setCandidates((prev) => {
           if (event === 'INSERT') {
@@ -93,9 +122,13 @@ export function useCandidates(deps: CandidatesDeps = {}): CandidatesState {
       },
 
       onRoom(event, row, previous) {
-        const id = row?.id ?? previous?.id
-        log.debug(`realtime rooms ${event}`, { id, name: row?.room_name })
+        if (!active) return
+        // DELETE payloads carry only the primary key in `previous`; `row` is
+        // empty, so trusting it would remove the literal id "undefined".
+        const id = event === 'DELETE' ? previous?.id : row?.id ?? previous?.id
+        log.debug(`realtime rooms ${event}`, { eventId, id, name: row?.room_name })
         if (!id) return
+        if (row?.event_id && row.event_id !== eventId) return
 
         setRooms((prev) => {
           if (event === 'INSERT') {
@@ -110,13 +143,13 @@ export function useCandidates(deps: CandidatesDeps = {}): CandidatesState {
       },
 
       onStatus(status) {
-        log.info(`realtime ${status}`)
+        log.info(`realtime ${status}`, { eventId })
         if (!active) return
         if (status === 'SUBSCRIBED') {
           // Snapshot now that the stream is live - nothing can slip through.
           void reload('subscribed')
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          log.warn(`realtime ${status} - falling back to a fresh snapshot`)
+          log.warn(`realtime ${status} - falling back to a fresh snapshot`, { eventId })
           void reload(status.toLowerCase())
         }
       },
@@ -127,10 +160,10 @@ export function useCandidates(deps: CandidatesDeps = {}): CandidatesState {
 
     return () => {
       active = false
-      log.debug('removing realtime channel')
+      log.debug('removing realtime channel', { eventId })
       unsubscribe()
     }
-  }, [realtime, reload])
+  }, [eventId, realtime, reload])
 
   const patchLocal = useCallback((id: string, patch: CandidatePatch) => {
     setCandidates((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)))

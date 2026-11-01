@@ -32,6 +32,10 @@ vi.mock('../../src/services/supabase', () => {
         select() {
           return query
         },
+        eq(column, value) {
+          db.calls.push({ table, filter: [column, value] })
+          return query
+        },
         order() {
           return query
         },
@@ -93,7 +97,7 @@ describe('useAnalytics', () => {
     ]
     db.rows.evaluations = []
 
-    const { result } = renderHook(() => useAnalytics())
+    const { result } = renderHook(() => useAnalytics('event-1'))
 
     await waitFor(() => expect(result.current.loading).toBe(false))
 
@@ -111,20 +115,26 @@ describe('useAnalytics', () => {
     db.reset()
     db.rows.candidate_events = Array.from({ length: 1001 }, (_, index) => ledgerEvent(index))
 
-    const { result } = renderHook(() => useAnalytics())
+    const { result } = renderHook(() => useAnalytics('event-1'))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     expect(result.current.analytics.totals.events).toBe(1001)
 
-    const eventPages = db.calls.filter((call) => call.table === 'candidate_events')
+    const eventPages = db.calls.filter(
+      (call) => call.table === 'candidate_events' && call.from !== undefined,
+    )
     expect(eventPages.map((call) => call.from)).toEqual([0, 1000])
+    const eventFilters = db.calls.filter(
+      (call) => call.table === 'candidate_events' && call.filter?.[0] === 'event_id',
+    )
+    expect(eventFilters.every((call) => call.filter[1] === 'event-1')).toBe(true)
   })
 
   it('reports a missing ledger as something to install, not a network failure', async () => {
     db.reset()
     db.fail = { code: 'PGRST205', message: 'Could not find the table public.candidate_events' }
 
-    const { result } = renderHook(() => useAnalytics())
+    const { result } = renderHook(() => useAnalytics('event-1'))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     expect(result.current.error).toBe(MISSING_LEDGER)
@@ -134,7 +144,7 @@ describe('useAnalytics', () => {
     db.reset()
     db.fail = { code: '42501', message: 'permission denied' }
 
-    const { result } = renderHook(() => useAnalytics())
+    const { result } = renderHook(() => useAnalytics('event-1'))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     expect(result.current.error).toBe('permission denied')
@@ -143,7 +153,7 @@ describe('useAnalytics', () => {
   it('fetches the ledger again on a manual refresh', async () => {
     db.reset()
 
-    const { result } = renderHook(() => useAnalytics())
+    const { result } = renderHook(() => useAnalytics('event-1'))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     const before = db.calls.filter((call) => call.table === 'candidate_events').length

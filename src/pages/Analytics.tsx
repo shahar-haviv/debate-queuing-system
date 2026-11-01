@@ -25,7 +25,9 @@ import {
 } from 'recharts'
 import type { EventKind } from '../core/types'
 import { useAuth } from '../hooks/useAuth'
-import { MISSING_LEDGER, useAnalytics } from '../hooks/useAnalytics'
+import { useAnalytics, MISSING_LEDGER } from '../hooks/useAnalytics'
+import { useCurrentEvent } from '../hooks/useCurrentEvent'
+import { formatEventDate } from '../domain/events'
 import { LONG_SESSION_MINUTES } from '../domain/analytics'
 import BrandMark from '../components/ui/BrandMark'
 
@@ -136,8 +138,9 @@ export function formatWhen(value: string | number | Date): string {
 
 export default function Analytics() {
   const navigate = useNavigate()
+  const { eventId, event } = useCurrentEvent()
   const { user, signOut } = useAuth()
-  const { analytics, loading, refreshing, error, updatedAt, refresh } = useAnalytics()
+  const { analytics, loading, refreshing, error, updatedAt, refresh } = useAnalytics(eventId)
   const { totals, rooms, leaderboard, recent } = analytics
 
   const handleSignOut = useCallback(async () => {
@@ -168,9 +171,11 @@ export default function Analytics() {
           <div className="flex items-center gap-3">
             <BrandMark className="size-10" />
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-foreground">Analytics</h1>
+              <h1 className="text-xl font-bold tracking-tight text-foreground">
+                Analytics{event ? ` — ${event.name}` : ''}
+              </h1>
               <p className="text-xs text-muted-foreground">
-                Operational metrics from the event ledger
+                {event ? `${formatEventDate(event.date)} · ` : ''}Operational metrics from this event's ledger
                 {updatedLabel && ` · updated ${updatedLabel}`}
               </p>
             </div>
@@ -178,10 +183,16 @@ export default function Analytics() {
 
           <div className="flex items-center gap-2">
             <Link
+              to={eventId ? `/admin/event/${eventId}/queue` : '/admin'}
+              className="rounded-md border border-input bg-card px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              Live queue
+            </Link>
+            <Link
               to="/admin"
               className="rounded-md border border-input bg-card px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted"
             >
-              Dispatch board
+              Back Office
             </Link>
             <button
               type="button"

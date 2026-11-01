@@ -12,9 +12,11 @@ import type { Candidate, CandidatePatch, Room, RoomPatch, RoomType, TaskAssignme
 import { createLogger } from '../core/logger'
 import { useAuth } from '../hooks/useAuth'
 import { useCandidates } from '../hooks/useCandidates'
+import { useCurrentEvent } from '../hooks/useCurrentEvent'
 import { useQueueActions } from '../hooks/useQueueActions'
 import { parseCandidatesCsv } from '../domain/csv'
 import { blockedInterviewers } from '../domain/conflicts'
+import { formatEventDate } from '../domain/events'
 import { DEBATE_INTERVIEW, PERSONAL_INTERVIEW, roomTypeForTask } from '../domain/autoAssign'
 import { applyServerRules } from '../domain/candidateRules'
 import BrandMark from '../components/ui/BrandMark'
@@ -82,6 +84,7 @@ type EditingTarget = Candidate | 'new' | null
 
 export default function Admin() {
   const { user, signOut } = useAuth()
+  const { eventId, event, error: eventError, loading: eventLoading } = useCurrentEvent()
   const navigate = useNavigate()
   const {
     candidates,
@@ -95,8 +98,8 @@ export default function Admin() {
     patchRoomLocal,
     addRoomLocal,
     removeRoomLocal,
-  } = useCandidates()
-  const actions = useQueueActions()
+  } = useCandidates(eventId)
+  const actions = useQueueActions(eventId)
 
   const [editing, setEditing] = useState<EditingTarget>(null)
   const [qrTarget, setQrTarget] = useState<Candidate | null>(null)
@@ -477,15 +480,32 @@ export default function Admin() {
           <div className="flex items-center gap-3">
             <BrandMark className="size-11" />
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">Candidate Queue</h1>
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                  {event?.name ?? 'Candidate Queue'}
+                </h1>
+                {event && (
+                  <span className="rounded bg-muted px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {event.status}
+                  </span>
+                )}
+              </div>
+              <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <span className="inline-block size-2 animate-pulse rounded-full bg-status-debate" />
                 Live · {candidates.length} candidates · {rooms.length} rooms
+                {event && <span>· {formatEventDate(event.date)}</span>}
+                {eventLoading && !event && <span>· loading event…</span>}
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/admin"
+              className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              Back Office
+            </Link>
             <button
               type="button"
               onClick={() => setEditing('new')}
@@ -511,7 +531,7 @@ export default function Admin() {
               onChange={handleFile}
             />
             <Link
-              to="/admin/analytics"
+              to={eventId ? `/admin/event/${eventId}/analytics` : '/admin'}
               className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
             >
               Analytics
@@ -530,9 +550,9 @@ export default function Admin() {
 
       {/* ------------------------------- body ------------------------------- */}
       <main className="mx-auto max-w-[1600px] px-4 py-5">
-        {error && (
+        {(error || eventError) && (
           <div className="mb-4 rounded-md border border-destructive/30 bg-late-surface px-4 py-3 text-sm text-destructive">
-            {error}
+            {eventError || error}
           </div>
         )}
 

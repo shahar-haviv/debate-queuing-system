@@ -40,6 +40,23 @@ vi.mock('../../src/hooks/useAnalytics', () => ({
   useAnalytics: () => ledger.current,
 }))
 
+vi.mock('../../src/hooks/useCurrentEvent', () => ({
+  useCurrentEvent: () => ({
+    eventId: 'event-1',
+    event: {
+      id: 'event-1',
+      name: 'Test event',
+      date: '2026-01-01',
+      status: 'Active',
+      notes: '',
+      created_at: '2026-01-01T00:00:00Z',
+    },
+    loading: false,
+    error: '',
+    reload: async () => {},
+  }),
+}))
+
 const refresh = vi.fn()
 
 const BASE = Date.UTC(2026, 9, 26, 17, 0, 0)
@@ -267,7 +284,7 @@ describe('Analytics', () => {
 
   it('links back to the dispatch board', () => {
     renderPage()
-    expect(screen.getByRole('link', { name: 'Dispatch board' }).getAttribute('href')).toBe('/admin')
+    expect(screen.getByRole('link', { name: 'Live queue' }).getAttribute('href')).toBe('/admin/event/event-1/queue')
   })
 })
 

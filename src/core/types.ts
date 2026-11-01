@@ -22,6 +22,37 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent'
 
 export type ToastTone = 'info' | 'success' | 'error'
 
+/* -------------------------------- events --------------------------------- */
+
+/** The `public.event_status` enum. */
+export type EventStatus = 'Draft' | 'Active' | 'Completed'
+
+/** One interview day. Everything operational belongs to exactly one. */
+export interface QueueEvent {
+  id: string
+  name: string
+  /** ISO date, `YYYY-MM-DD`. */
+  date: string
+  status: EventStatus
+  notes: string
+  created_at: string
+}
+
+/** The hub card's projection: the event plus the two counts it displays. */
+export interface EventSummary extends QueueEvent {
+  candidate_count: number
+  room_count: number
+}
+
+export interface NewEvent {
+  name: string
+  date: string
+  status?: EventStatus
+  notes?: string
+}
+
+export type EventPatch = Partial<Pick<QueueEvent, 'name' | 'date' | 'status' | 'notes'>>
+
 /** A 1–5 rubric answer, a free-text answer, or a deliberate blank. */
 export type ScoreValue = string | number | null
 export type Scores = Record<string, ScoreValue>
@@ -35,6 +66,7 @@ export interface Interviewer {
 
 export interface Room {
   id: string
+  event_id: string
   room_name: string
   room_type: RoomType
   interviewers: Interviewer[]
@@ -53,6 +85,7 @@ export type RoomPatch = Partial<NewRoom>
 
 export interface Candidate {
   id: string
+  event_id: string
   serial_number: string | null
   name: string
   phone_number: string | null
@@ -133,6 +166,7 @@ export type CandidateDedupeRow = Pick<
 
 export interface Evaluation {
   id: string
+  event_id: string
   candidate_id: string
   room_id: string | null
   task: TaskAssignment | null
@@ -157,6 +191,7 @@ export interface NewEvaluation {
 
 export interface CandidateEvent {
   id: number | string
+  event_id: string
   candidate_id: string | null
   candidate_name: string | null
   at: string

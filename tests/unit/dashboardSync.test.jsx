@@ -56,6 +56,23 @@ vi.mock('../../src/hooks/useAuth', () => ({
   useAuth: () => ({ user: { email: 'admin@example.com' }, signOut: async () => {} }),
 }))
 
+vi.mock('../../src/hooks/useCurrentEvent', () => ({
+  useCurrentEvent: () => ({
+    eventId: 'event-1',
+    event: {
+      id: 'event-1',
+      name: 'Test event',
+      date: '2026-01-01',
+      status: 'Active',
+      notes: '',
+      created_at: '2026-01-01T00:00:00Z',
+    },
+    loading: false,
+    error: '',
+    reload: async () => {},
+  }),
+}))
+
 vi.mock('../../src/hooks/useCandidates', async () => {
   const { useSyncExternalStore } = await import('react')
   const find = (kind, id) =>
@@ -122,7 +139,10 @@ vi.mock('../../src/services/supabase', () => {
         },
       }),
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
+        eq: () => ({
+          maybeSingle: async () => ({ data: null, error: null }),
+          not: async () => ({ data: [], error: null }),
+        }),
         not: async () => ({ data: [], error: null }),
       }),
       insert: () => ({ select: () => ({ single: async () => ({ data: null, error: null }) }) }),

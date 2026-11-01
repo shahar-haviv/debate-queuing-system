@@ -22,22 +22,22 @@ export interface EvaluationsState {
   release: (candidateId: string) => Promise<void>
 }
 
-export function useEvaluations(roomId: string | undefined): EvaluationsState {
+export function useEvaluations(eventId: string | undefined, roomId: string | undefined): EvaluationsState {
   const { evaluations: repo, candidates } = useServices()
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
 
   const load = useCallback(
     async (reason = 'manual') => {
-      if (!roomId) return
+      if (!eventId || !roomId) return
       try {
-        const rows = await repo.listByRoom(roomId)
-        log.debug('evaluations loaded', { roomId, reason, count: rows.length })
+        const rows = await repo.listByRoom(eventId, roomId)
+        log.debug('evaluations loaded', { eventId, roomId, reason, count: rows.length })
         setEvaluations(rows)
       } catch (cause) {
-        log.error('loading evaluations failed', { roomId, reason, cause })
+        log.error('loading evaluations failed', { eventId, roomId, reason, cause })
       }
     },
-    [repo, roomId],
+    [eventId, repo, roomId],
   )
 
   useEffect(() => {

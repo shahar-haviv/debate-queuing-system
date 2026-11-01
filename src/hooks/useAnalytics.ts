@@ -33,7 +33,7 @@ export interface AnalyticsState {
   refresh: () => Promise<void>
 }
 
-export function useAnalytics(ledgerOverride?: LedgerRepository): AnalyticsState {
+export function useAnalytics(eventId: string | undefined, ledgerOverride?: LedgerRepository): AnalyticsState {
   const services = useServices()
   const ledger = ledgerOverride ?? services.ledger
 
@@ -45,6 +45,14 @@ export function useAnalytics(ledgerOverride?: LedgerRepository): AnalyticsState 
 
   const load = useCallback(
     async ({ refresh = false } = {}) => {
+      if (!eventId) {
+        setAnalytics(computeAnalytics())
+        setError('No event is selected.')
+        setLoading(false)
+        setRefreshing(false)
+        return
+      }
+
       if (refresh) setRefreshing(true)
       else setLoading(true)
       setError('')
@@ -52,10 +60,10 @@ export function useAnalytics(ledgerOverride?: LedgerRepository): AnalyticsState 
       const done = log.time(`load ledger (${refresh ? 'refresh' : 'first'})`)
 
       try {
-        const { events, evaluations } = await ledger.load()
+        const { events, evaluations } = await ledger.load(eventId)
         setAnalytics(computeAnalytics({ events, evaluations }))
         setUpdatedAt(new Date())
-        log.info('ledger loaded', { events: events.length, evaluations: evaluations.length })
+        log.info('ledger loaded', { eventId, events: events.length, evaluations: evaluations.length })
       } catch (cause) {
         // The ledger may simply not exist yet - say so instead of showing a
         // generic "something went wrong" over a wall of zeroes.
@@ -73,7 +81,7 @@ export function useAnalytics(ledgerOverride?: LedgerRepository): AnalyticsState 
         setRefreshing(false)
       }
     },
-    [ledger],
+    [eventId, ledger],
   )
 
   useEffect(() => {

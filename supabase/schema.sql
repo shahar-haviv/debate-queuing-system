@@ -23,6 +23,12 @@ begin
 exception when duplicate_object then null;
 end $$;
 
+do $$
+begin
+  create type public.event_status as enum ('Draft', 'Active', 'Completed');
+exception when duplicate_object then null;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- 2. Tables
 -- ---------------------------------------------------------------------------
@@ -30,8 +36,21 @@ create table if not exists public.allowed_admins (
   email text primary key
 );
 
+-- One interview day. Every operational row below points here, so a new day is
+-- never entangled with the board that ran last week.
+create table if not exists public.events (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  date       date not null,
+  status     public.event_status not null default 'Draft',
+  notes      text not null default '',
+  created_at timestamptz not null default now(),
+  constraint events_name_not_blank check (length(btrim(name)) > 0)
+);
+
 create table if not exists public.rooms (
   id           uuid primary key default gen_random_uuid(),
+  event_id     uuid not null references public.events (id) on delete cascade,
   room_name    text not null,
   room_type    public.room_type not null default 'General',
   -- A room can host a panel: an ordered list of { name, phone } objects.
@@ -42,6 +61,7 @@ create table if not exists public.rooms (
 
 create table if not exists public.candidates (
   id                         uuid primary key default gen_random_uuid(),
+  event_id                   uuid not null references public.events (id) on delete cascade,
   serial_number              text,
   name                       text not null,
   phone_number               text,
@@ -57,6 +77,7 @@ create table if not exists public.candidates (
   created_at                 timestamptz not null default now()
 );
 
+create index if not exists events_date_idx on public.events (date);
 create index if not exists candidates_has_arrived_idx on public.candidates (has_arrived);
 create index if not exists candidates_planned_time_idx on public.candidates (planned_time);
 create index if not exists candidates_assigned_room_idx on public.candidates (assigned_room);
@@ -69,6 +90,7 @@ create index if not exists candidates_assigned_room_idx on public.candidates (as
 -- at all — see §4 — which is what keeps the form "discreet".
 create table if not exists public.evaluations (
   id               uuid primary key default gen_random_uuid(),
+  event_id         uuid not null references public.events (id) on delete cascade,
   candidate_id     uuid not null references public.candidates (id) on delete cascade,
   room_id          uuid references public.rooms (id) on delete set null,
   task             public.task_assignment not null,
@@ -107,6 +129,7 @@ create unique index if not exists evaluations_candidate_task_key
 --     shape, so the ledger cannot disagree with the board.
 create table if not exists public.candidate_events (
   id             bigint generated always as identity primary key,
+  event_id       uuid not null references public.events (id) on delete restrict,
   candidate_id   uuid,
   candidate_name text,
   at             timestamptz not null default now(),
@@ -169,6 +192,115 @@ begin
     alter table public.rooms drop column interviewer_phone;
   end if;
 end $$;
+
+-- Multi-event upgrade. The columns are added nullable first so live rows can be
+-- adopted by one event without any data loss; only then are they made NOT NULL.
+-- On a fresh install the table definitions above already carry them, making
+-- every statement below a no-op.
+alter table public.rooms           add column if not exists event_id uuid;
+alter table public.candidates      add column if not exists event_id uuid;
+alter table public.evaluations     add column if not exists event_id uuid;
+alter table public.candidate_events add column if not exists event_id uuid;
+
+do $$
+declare
+  fallback uuid;
+begin
+  if exists (select 1 from public.rooms            where event_id is null)
+     or exists (select 1 from public.candidates       where event_id is null)
+     or exists (select 1 from public.evaluations      where event_id is null)
+     or exists (select 1 from public.candidate_events where event_id is null) then
+    -- Adopt the live, pre-multi-event board as a normal event. It keeps its
+    -- status so the old board behaves exactly as it did before the upgrade.
+    select id into fallback from public.events order by created_at, id limit 1;
+
+    if fallback is null then
+      insert into public.events (name, date, status, notes)
+      values (
+        'Main event',
+        current_date,
+        'Active',
+        'Created automatically when multi-event support was installed.'
+      )
+      returning id into fallback;
+    end if;
+
+    update public.rooms            set event_id = fallback where event_id is null;
+    update public.candidates       set event_id = fallback where event_id is null;
+
+    update public.evaluations evaluation
+       set event_id = candidate.event_id
+      from public.candidates candidate
+     where evaluation.candidate_id = candidate.id
+       and evaluation.event_id is null;
+
+    update public.candidate_events logged
+       set event_id = candidate.event_id
+      from public.candidates candidate
+     where logged.candidate_id = candidate.id
+       and logged.event_id is null;
+
+    -- Orphaned ledger rows (the ledger deliberately has no FK to candidates)
+    -- still belong to the day that was live when they were written.
+    update public.evaluations      set event_id = fallback where event_id is null;
+    update public.candidate_events set event_id = fallback where event_id is null;
+  end if;
+end $$;
+
+alter table public.rooms            alter column event_id set not null;
+alter table public.candidates       alter column event_id set not null;
+alter table public.evaluations      alter column event_id set not null;
+alter table public.candidate_events alter column event_id set not null;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'rooms_event_id_fkey'
+       and conrelid = 'public.rooms'::regclass
+  ) then
+    alter table public.rooms
+      add constraint rooms_event_id_fkey
+      foreign key (event_id) references public.events (id) on delete cascade;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'candidates_event_id_fkey'
+       and conrelid = 'public.candidates'::regclass
+  ) then
+    alter table public.candidates
+      add constraint candidates_event_id_fkey
+      foreign key (event_id) references public.events (id) on delete cascade;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'evaluations_event_id_fkey'
+       and conrelid = 'public.evaluations'::regclass
+  ) then
+    alter table public.evaluations
+      add constraint evaluations_event_id_fkey
+      foreign key (event_id) references public.events (id) on delete cascade;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'candidate_events_event_id_fkey'
+       and conrelid = 'public.candidate_events'::regclass
+  ) then
+    -- The ledger is history: deleting an event that has history is refused,
+    -- not silently cascaded away.
+    alter table public.candidate_events
+      add constraint candidate_events_event_id_fkey
+      foreign key (event_id) references public.events (id) on delete restrict;
+  end if;
+end $$;
+
+create index if not exists rooms_event_idx on public.rooms (event_id);
+create index if not exists candidates_event_idx on public.candidates (event_id);
+create index if not exists evaluations_event_idx on public.evaluations (event_id);
+create index if not exists candidate_events_event_id_idx on public.candidate_events (event_id, at);
 
 -- ---------------------------------------------------------------------------
 -- 3. Automation triggers
@@ -334,6 +466,31 @@ as $$
    where room.id = target_room;
 $$;
 
+-- A room belongs to exactly one event, and a candidate may only be placed in a
+-- room from the event they were imported into. Enforced in the database because
+-- the auto-assign path is not the only writer.
+create or replace function public.assert_room_in_event(target_room uuid, target_event uuid)
+returns void
+language plpgsql
+stable
+set search_path = public
+as $$
+begin
+  if target_room is null then
+    return;
+  end if;
+
+  if not exists (
+    select 1
+      from public.rooms room
+     where room.id = target_room
+       and room.event_id = target_event
+  ) then
+    raise exception 'Room % does not belong to this event.', target_room
+      using errcode = 'check_violation';
+  end if;
+end $$;
+
 create or replace function public.handle_candidate_changes()
 returns trigger
 language plpgsql
@@ -344,6 +501,17 @@ declare
 begin
   -- Rule 7 — the restricted list is tidied on every write, whoever sent it.
   new.interviewer_constraints := public.normalize_constraints(new.interviewer_constraints);
+
+  -- A candidate's event is immutable once assigned: moving a row between days
+  -- would silently rewrite that day's analytics and could strand it in a room
+  -- from another event. Re-import instead. (A null event on a legacy row is
+  -- still adoptable, which is what makes the migration re-runnable.)
+  if old.event_id is not null and new.event_id is distinct from old.event_id then
+    raise exception 'A candidate cannot be moved between events.'
+      using errcode = 'check_violation';
+  end if;
+
+  perform public.assert_room_in_event(new.assigned_room, new.event_id);
 
   if new.has_arrived is not true then
     -- Rule 1 — also covers un-ticking "Arrived", which resets the candidate.
@@ -423,6 +591,8 @@ begin
   -- Rule 7 — the restricted list is tidied on the way in too.
   new.interviewer_constraints := public.normalize_constraints(new.interviewer_constraints);
 
+  perform public.assert_room_in_event(new.assigned_room, new.event_id);
+
   if new.has_arrived is not true then
     new.arrival_time := null;
     new.assigned_room := null;
@@ -457,6 +627,38 @@ drop trigger if exists candidates_before_insert on public.candidates;
 create trigger candidates_before_insert
   before insert on public.candidates
   for each row execute function public.handle_candidate_insert();
+
+-- An evaluation's event and room are derived from the candidate being scored,
+-- never trusted from the client. This is what keeps a room page from filing a
+-- rubric into the wrong event's analytics.
+create or replace function public.handle_evaluation_event()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  candidate_event uuid;
+begin
+  select candidate.event_id
+    into candidate_event
+    from public.candidates candidate
+   where candidate.id = new.candidate_id;
+
+  if candidate_event is null then
+    raise exception 'Evaluation candidate % does not exist.', new.candidate_id
+      using errcode = 'check_violation';
+  end if;
+
+  new.event_id := candidate_event;
+  perform public.assert_room_in_event(new.room_id, candidate_event);
+
+  return new;
+end $$;
+
+drop trigger if exists evaluations_before_write on public.evaluations;
+create trigger evaluations_before_write
+  before insert or update on public.evaluations
+  for each row execute function public.handle_evaluation_event();
 
 -- ---------------------------------------------------------------------------
 -- The ledger writer.
@@ -598,6 +800,36 @@ create trigger candidates_log_events
   after insert or update on public.candidates
   for each row execute function public.log_candidate_event();
 
+-- The ledger writer never has to remember event_id, and cannot get it wrong:
+-- every appended movement inherits the event of the candidate it describes,
+-- even if a different event was supplied. Orphan rows (a candidate deleted
+-- outside the app) still have to name the day they belong to.
+create or replace function public.handle_candidate_event_event()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.candidate_id is not null then
+    select candidate.event_id
+      into new.event_id
+      from public.candidates candidate
+     where candidate.id = new.candidate_id;
+  end if;
+
+  if new.event_id is null then
+    raise exception 'Could not resolve the event for candidate %.', new.candidate_id
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists candidate_events_before_insert on public.candidate_events;
+create trigger candidate_events_before_insert
+  before insert or update on public.candidate_events
+  for each row execute function public.handle_candidate_event_event();
+
 -- A room's panel is tidied on the way into the table, whoever sent it, so the
 -- array can never hold blank names or the same person twice. Rule 7 then only
 -- ever has to compare clean names.
@@ -607,6 +839,14 @@ language plpgsql
 set search_path = public
 as $$
 begin
+  -- Moving a room to another event would strand the candidates already in it.
+  -- Re-create the room instead. (A null event on a legacy row is still
+  -- adoptable, which is what makes the migration re-runnable.)
+  if tg_op = 'UPDATE' and old.event_id is not null and new.event_id is distinct from old.event_id then
+    raise exception 'A room cannot be moved between events.'
+      using errcode = 'check_violation';
+  end if;
+
   new.interviewers := public.normalize_interviewers(new.interviewers);
   return new;
 end $$;
@@ -695,9 +935,22 @@ as $$
 $$;
 
 alter table public.allowed_admins enable row level security;
+alter table public.events         enable row level security;
 alter table public.rooms          enable row level security;
 alter table public.candidates     enable row level security;
 alter table public.evaluations    enable row level security;
+
+-- events: Back Office only. The public candidate page never needs the event
+-- record, and an event name/notes can contain internal planning detail.
+revoke all on public.events from anon;
+grant select, insert, update, delete on public.events to authenticated;
+
+drop policy if exists "Admins manage events" on public.events;
+create policy "Admins manage events"
+  on public.events for all
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
 
 -- allowed_admins: a signed-in user may read only their own row (used to verify access)
 drop policy if exists "Admins read own admin row" on public.allowed_admins;
@@ -807,9 +1060,15 @@ insert into public.allowed_admins (email)
 values ('idc.debate@gmail.com')
 on conflict (email) do nothing;
 
--- Default rooms, inserted only when the table is empty.
-insert into public.rooms (room_name, room_type)
-select v.room_name, v.room_type::public.room_type
+-- A fresh install still needs one event before it can own the default rooms.
+insert into public.events (name, date, status, notes)
+select 'Main event', current_date, 'Active', 'Default event created with the first install.'
+where not exists (select 1 from public.events);
+
+-- Default rooms, inserted only when the table is empty. They belong to the
+-- first event, which is the one the fresh install just created.
+insert into public.rooms (event_id, room_name, room_type)
+select event.id, v.room_name, v.room_type::public.room_type
 from (values
   ('A206', 'Debate'),
   ('A207', 'Debate'),
@@ -819,4 +1078,9 @@ from (values
   ('SL103', 'Personal'),
   ('PEB30', 'Personal')
 ) as v(room_name, room_type)
+cross join (select id from public.events order by created_at, id limit 1) event
 where not exists (select 1 from public.rooms);
+
+-- PostgREST caches tables, columns and relationships. Tell it to pick up the
+-- new events table and every event_id column immediately after `db:push`.
+notify pgrst, 'reload schema';
