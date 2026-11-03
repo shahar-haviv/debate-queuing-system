@@ -12,7 +12,7 @@ just to make a number look better.
 | **End-to-end** | Playwright | `tests/e2e/*.spec.js` | The real UI against the real board, in a real browser | ~60s |
 
 ```bash
-bun run test       # logic + components    (357 tests, ~20s)
+bun run test       # logic + components    (363 tests, ~20s)
 bun run test:db   # live database          (110 assertions)
 bun run test:e2e  # browser                (22 tests; 2 opt-in, 3 data-gated)
 bun run test:all  # all three
@@ -533,7 +533,7 @@ for?".
 
 ### `events.test.mjs` — the movement ledger
 
-The trigger is the only writer of `candidate_events`, and `/admin/analytics`
+The trigger is the only writer of `candidate_events`, and `/admin/event/:id/analytics`
 counts what it wrote. So the test drives a scratch candidate through the same REST
 endpoint the UI uses and reads the ledger back:
 
@@ -905,7 +905,7 @@ Test with a phone in one hand: the dispatcher is usually standing up.
 51. Delete a test candidate and confirm the row disappears without disturbing the
     others.
 
-### I. Analytics (`/admin/analytics`)
+### I. Analytics (`/admin/event/:id/analytics`)
 
 52. Open it from the **Analytics** button on the dispatch board. It must load
     without slowing the board down; the first visit downloads one extra chunk.
@@ -921,7 +921,7 @@ Test with a phone in one hand: the dispatcher is usually standing up.
 56. File one rubric and skip another, then refresh: the interviewer who filed must
     show one **digital** rubric, and the room's panel must show one **paper**
     interview. Nobody must be counted twice for the same interview.
-57. Sign out, then open `/admin/analytics` directly: it must land on the sign-in
+57. Sign out, then open `/admin/event/:id/analytics` directly: it must land on the sign-in
     wall. Confirm in the network tab that the page requests `candidate_events`
     only when signed in.
 

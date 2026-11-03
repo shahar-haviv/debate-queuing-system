@@ -40,7 +40,7 @@ bun install              # install from bun.lock
 bun run dev              # Vite dev server
 bun run typecheck        # tsc --noEmit (strict)
 bun run build            # typecheck, then vite build into dist/
-bun run test             # Vitest unit + component suite (357 tests)
+bun run test             # Vitest unit + component suite (363 tests)
 bun run test:coverage    # the same, with a v8 coverage report
 bun run test:db          # live database rules + privacy (needs credentials)
 bun run test:e2e         # Playwright
@@ -72,6 +72,7 @@ src/
     monitoring.ts      window.onerror / unhandledrejection
   domain/
     time.ts            clock maths, formatting, lateness
+    events.ts          event dates, statuses and presentation labels
     conflicts.ts       restricted-interviewer rules
     autoAssign.ts      needed tasks, room filtering, placement, FIFO line
     rooms.ts           who is in a room, longest-waiting first
@@ -85,20 +86,26 @@ src/
     supabaseDatabase.ts the adapter implementing every interface
     container.tsx      ServicesProvider / useServices / getServices
   hooks/
+    useCurrentEvent.tsx route-scoped event context (`/admin/event/:id/...`)
+    useEvents.ts       Back Office cards + metadata/status writes
+    useRoom.ts         staff room link → its event
+    useEventPlanner.ts draft event → rooms → roster, with rollback
     useCandidates.ts   live read model + optimistic local mutators
     useQueueActions.ts every write, results or throws
     useQueueLogic.ts   derived columns, search, line positions
     useEvaluations.ts  one room's rubrics + file/release
     useCandidate.ts    the public page's projection
-    useAnalytics.ts    ledger loading + aggregates
+    useAnalytics.ts    event ledger loading + aggregates
     useAuth.tsx        session, admin check, sign in/out
   components/
     ui/                Button, Card, Modal, Column, Toast, BrandMark,
                        ConfigBanner, ErrorBoundary, DebugPanel
     features/          CandidateQueueList, CandidateCard, RoomsPanel,
                        InterviewerModal, AddEditCandidateModal, QrModal,
-                       EvaluationForm, RequireAdmin, RouteLogger
-  pages/               Login, Admin, Analytics, RoomView, CandidateView
+                       EvaluationForm, EventSettingsModal, RequireAdmin,
+                       RouteLogger
+  pages/               Login, EventHub, EventPlanner, Admin, Analytics,
+                       RoomView, CandidateView
   App.tsx              routes + the startup configuration gate
   main.tsx             composition root (providers)
 ```
@@ -142,19 +149,28 @@ control), but it is still configuration, and it never belongs in source.
 `src/services/database.ts` defines what the app needs, not what Supabase offers:
 
 ```ts
+export interface EventRepository {
+  listSummaries: () => Promise<EventSummary[]>          // event + candidate/room counts
+  findById: (id: string) => Promise<QueueEvent | null>
+  create: (input: NewEvent) => Promise<QueueEvent>
+  update: (id: string, patch: EventPatch) => Promise<QueueEvent>
+  remove: (id: string) => Promise<void>                // planner rollback only
+}
+
 export interface CandidateRepository {
-  list: () => Promise<Candidate[]>
-  listAssignments: () => Promise<CandidateAssignment[]>   // id + assigned_room only
-  listDedupeRows: () => Promise<CandidateDedupeRow[]>
+  list: (eventId: string) => Promise<Candidate[]>
+  listAssignments: (eventId: string) => Promise<CandidateAssignment[]>   // id + assigned_room only
+  listDedupeRows: (eventId: string) => Promise<CandidateDedupeRow[]>
   findById: (id: string) => Promise<Candidate | null>
   findPublicById: (id: string) => Promise<PublicCandidate | null>  // no phone/serial
-  create: (input: NewCandidate) => Promise<Candidate>
+  create: (eventId: string, input: NewCandidate) => Promise<Candidate>
   update: (id: string, patch: CandidatePatch) => Promise<Candidate>
   remove: (id: string) => Promise<void>
-  importMany: (rows: NewCandidate[]) => Promise<Candidate[]>
+  importMany: (eventId: string, rows: NewCandidate[]) => Promise<Candidate[]>
 }
 
 export interface DatabaseService {
+  events: EventRepository
   candidates: CandidateRepository
   rooms: RoomRepository
   evaluations: EvaluationRepository
@@ -303,3 +319,57 @@ type error.
 5. Render it in a `components/features/` component that takes props.
 6. Wire it in a page; turn results into toasts there.
 7. Run the three commands in section 8.
+
+---
+
+## 10. Events: one day per scope
+
+The app is a Back Office over many interview days, not one board. The live queue
+is still the centre of the product, but it is now always opened *inside* an
+event.
+
+**The URL owns the scope.** `/admin/event/:id/queue` and
+`/admin/event/:id/analytics` are nested under `CurrentEventProvider`, which
+resolves the event once and exposes `{ eventId, event, loading, error }`. Pages
+do not prop-drill an event id, and they do not keep a second copy of the event.
+`/admin` is the hub; `/admin/event/new` is the planner.
+
+**Reads are event-scoped at the repository boundary.** Every list method takes
+an `eventId`, and the Supabase adapter adds `.eq('event_id', eventId)` before any
+other filter. Realtime channels add the same filter, so an admin on one event
+does not receive inserts, updates or deletes from another. The public
+`/candidate/:id` and `/room/:roomId` links stay global because their ids are
+unique; the room link resolves its event once, then enters the normal scoped
+board.
+
+**Writes that create rows receive the event explicitly.** A candidate, room or
+planner import cannot be inserted without one. Updates use the row's unique id,
+and the database backstops the dangerous cases:
+
+- a candidate or room cannot be moved to another event;
+- a candidate cannot be assigned a room from another event;
+- an evaluation derives `event_id` from its candidate and checks the room
+  belongs to that event;
+- `candidate_events` derives `event_id` from its candidate, even if a caller
+  supplies a different one;
+- an event with ledger history cannot be deleted (`on delete restrict`), while
+  a draft with no history can be removed.
+
+Note the two different meanings in `candidate_events`: `event` is the movement
+kind (`arrived`, `assigned`, `completed`, …), while `event_id` is the interview
+day the movement belongs to. They are deliberately separate columns.
+
+**The planner is a compensating transaction.** A browser cannot hold one
+PostgREST transaction across event, rooms and roster, so the three steps are
+collected locally first, then written in order: create the event as `Draft`,
+create its rooms, import the roster. If a later step fails, the hook deletes the
+draft event again. The hub only ever groups by lifecycle — `Draft` (Upcoming),
+`Active` (running) and `Completed` (Past) — and activation is an explicit admin
+action from *Edit Settings*, not a side effect of the date.
+
+**The migration is additive.** Existing candidates, rooms, evaluations and
+ledger rows are adopted by an automatically created `Active` event called
+`Main event`; no row is rewritten or deleted. The public room projection stays
+`id, room_name, room_type` because anonymous readers were never granted the
+other columns; staff pages use the separate `findByIdWithEvent` lookup.
+

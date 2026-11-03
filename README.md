@@ -21,7 +21,8 @@ and verification — is in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
 | Area | What it does |
 | --- | --- |
 | **Auth** | Email/password **or** magic link. Only emails in `allowed_admins` may enter `/admin`. |
-| **Admin dashboard** | Header with live counters, a name search, and three live columns: *Not Arrived*, *Arrived*, *Finished*. |
+| **Back Office** | `/admin` groups every interview day into **Upcoming**, **Active** and **Past**, with candidate/room counts and per-event actions: **Open Live Queue**, **View Analytics**, **Edit Settings**. `/admin/event/new` plans a day in three steps — details, rooms, CSV roster — and rolls the draft back if setup fails. |
+| **Live queue** | `/admin/event/:id/queue`: header with live counters, a name search, and three live columns: *Not Arrived*, *Arrived*, *Finished*. Reads and realtime are strictly scoped to that event. |
 | **Rooms panel** | Always-visible grid above the lists. Inline type editing, delete, and a live **active status** showing exactly which candidates are in each room right now. |
 | **Interviewer panels** | A room can host a whole panel. Each room card lists **every** interviewer's name and phone **inline** — no click needed — with tap-to-call on each number. Click the room name or the ✎ to open the panel and add, edit or remove members. |
 | **Time in room** | Candidates sitting in a room show a live `⏱️ 12m` counter that recalculates every minute. Past **20 minutes** it turns red and gains a ⚠️ to flag an interview running long. |
@@ -39,7 +40,7 @@ and verification — is in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
 | **Public page** | Read-only, no auth, live via realtime — shows "proceed to room" or "you are in the queue". |
 | **In-room rubric** | A **Personal Interview** opens the club's own 22-question Hebrew form inside `/room/:roomId` — right-to-left, mandatory fields enforced, the candidate's name and serial pre-filled, and the room's interviewer panel filled in automatically (every name, joined). Submit files it and releases the room; Skip releases the room without filing. |
 | **Evaluation records** | Each submission is stored in `evaluations` (one row per candidate per interview, so re-submitting edits rather than duplicates). The table has **no anonymous access at all** — it is staff-only, like the form. |
-| **Analytics** | A read-only **`/admin/analytics`** dashboard over an append-only movement ledger: four KPI cards, *Throughput by Room* and *Average Duration by Room* bar charts (Recharts, long rooms in red), an interviewer leaderboard that separates digital rubrics from paper interviews, a raw per-room timing table, and the latest movements themselves. Refresh on demand. |
+| **Analytics** | A read-only **`/admin/event/:id/analytics`** dashboard over that event's append-only movement ledger: four KPI cards, *Throughput by Room* and *Average Duration by Room* bar charts (Recharts, long rooms in red), an interviewer leaderboard that separates digital rubrics from paper interviews, a raw per-room timing table, and the latest movements themselves. Refresh on demand. |
 
 ---
 
@@ -78,7 +79,11 @@ bun run db:push
 
 This applies [`supabase/schema.sql`](./supabase/schema.sql) — tables, enums,
 triggers, RLS policies, the realtime publication, and seed rows — then verifies
-the tables are reachable through the REST API.
+the tables are reachable through the REST API. It is idempotent. On a database
+that predates multi-event support it also creates an `Active` event called
+`Main event` and adopts every existing candidate, room, evaluation and ledger
+row, so the old board is preserved rather than reset. Apply the schema **before**
+deploying a client that writes `event_id`.
 
 > **Prefer to do it by hand?** Open **SQL Editor → New query** in the dashboard,
 > paste the contents of `supabase/schema.sql`, and click **Run**.
@@ -107,7 +112,10 @@ bun run dev
 | Route | Purpose |
 | --- | --- |
 | `/login` | Staff sign in |
-| `/admin` | Dispatch dashboard (protected) |
+| `/admin` | Back Office hub: Upcoming / Active / Past events (protected) |
+| `/admin/event/new` | Plan a new event: details, rooms, roster (protected) |
+| `/admin/event/:id/queue` | Live dispatch board for one event (protected) |
+| `/admin/event/:id/analytics` | Analytics for one event (protected) |
 | `/room/:roomId` | In-room board + the Personal Interview rubric (protected) |
 | `/candidate/:id` | Public live status page (no auth) |
 
@@ -404,7 +412,7 @@ own column so "who wrote this" is queryable, alongside `room_id`, `task`,
 
 ## The movement ledger & analytics
 
-`/admin/analytics` answers questions the board cannot: **how long does a Personal
+`/admin/event/:id/analytics` answers questions the board cannot: **how long does a Personal
 interview actually take in CL05, who is doing the interviews, and how long did
 people wait before they were called?** It is read-only, staff-only, and loads on
 demand rather than streaming.
@@ -457,7 +465,7 @@ it — it says so explicitly and shows the movements in a **Recent Movements** t
 at the bottom, so a single recorded event is visible rather than leaving four
 zeroes looking like a broken page.
 
-Recharts is ~380 kB, so `/admin/analytics` is **lazy-loaded** — the dispatch board
+Recharts is ~380 kB, so `/admin/event/:id/analytics` is **lazy-loaded** — the dispatch board
 keeps the same first load it had before the charts existed, and the dashboard
 chunk downloads only when somebody opens it.
 
@@ -490,7 +498,7 @@ middleware (`src/services/supabase.ts`) trace everything that happens:
 ## Testing
 
 ```bash
-bun run test          # logic + components          (357 tests, jsdom)
+bun run test          # logic + components          (363 tests, jsdom)
 bun run test:db       # live database               (Rules 1–7 + strict privacy)
 bun run test:e2e      # real browser                (Playwright, read-only by default)
 bun run test:all      # all four layers
@@ -585,7 +593,7 @@ scripts/
 supabase/
   schema.sql      One-shot database setup (tables, RLS, automation triggers)
 tests/
-  unit/           Vitest — pure logic and components (357 tests)
+  unit/           Vitest — pure logic and components (363 tests)
   db/             Rules 1–7, the privacy guarantees, and the event ledger,
                   against the live project
   e2e/            Playwright — the real UI, read-only unless you opt in
