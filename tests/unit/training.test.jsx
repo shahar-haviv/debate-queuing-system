@@ -1,7 +1,13 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  PRESET_PALETTES,
+  applyThemePalette,
+  parseCoolorsUrl,
+} from '../../src/core/theme'
+import MainOffice from '../../src/pages/MainOffice'
 import {
   DEFAULT_PAIRING_OPTIONS,
   computeAllMemberStats,
@@ -12,6 +18,31 @@ import {
 } from '../../src/training/domain/pairingEngine'
 import TrainingHub from '../../src/training/pages/TrainingHub'
 import { resetTrainingStore, trainingService } from '../../src/training/services/trainingStorage'
+
+vi.mock('../../src/hooks/useAuth', () => ({
+  useAuth: () => ({ user: { email: 'idc.debate@gmail.com' }, signOut: async () => {} }),
+}))
+
+vi.mock('../../src/hooks/useEvents', () => ({
+  useEvents: () => ({
+    events: [
+      {
+        id: 'event-1',
+        name: 'Annual Screening 2026',
+        date: '2026-11-10',
+        status: 'Active',
+        notes: '',
+        created_at: '2026-11-01T00:00:00Z',
+        candidate_count: 54,
+        room_count: 4,
+      },
+    ],
+    loading: false,
+    error: '',
+    reload: async () => {},
+    update: async () => ({}),
+  }),
+}))
 
 beforeEach(() => {
   resetTrainingStore()
@@ -134,5 +165,34 @@ describe('TrainingHub — Club Training & Smart BP Room Draw UI', { timeout: 150
     expect(screen.getByText(/Pending Google SSO Registrations/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '✓ Approve as Student (Junior)' }))
     expect(screen.queryByText(/Pending Google SSO Registrations/)).not.toBeInTheDocument()
+  })
+
+  it('parses Coolors palette URLs and renders MainOffice homepage with training signups & clickable IDC logo', () => {
+    const parsed = parseCoolorsUrl(
+      'https://coolors.co/palette/bee9e8-62b6cb-1b4965-cae9ff-5fa8d3',
+    )
+    expect(parsed).toEqual(['#BEE9E8', '#62B6CB', '#1B4965', '#CAE9FF', '#5FA8D3'])
+
+    applyThemePalette(PRESET_PALETTES[0])
+    expect(document.documentElement.style.getPropertyValue('--palette-3')).toBe('#1B4965')
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<MainOffice />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'IDC Debate Society' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Return to Main Office' })).toHaveAttribute(
+      'href',
+      '/',
+    )
+    expect(screen.getByText(/Who Signed Up for/)).toBeInTheDocument()
+    expect(screen.getByText(/Debaters \(/)).toBeInTheDocument()
+    expect(screen.getByText(/Judges & Chairs \(/)).toBeInTheDocument()
   })
 })

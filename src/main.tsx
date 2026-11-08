@@ -10,10 +10,12 @@ import ConfigBanner from './components/ui/ConfigBanner'
 import RouteLogger from './components/features/RouteLogger'
 import DebugPanel from './components/ui/DebugPanel'
 import { installGlobalErrorHandlers } from './core/monitoring'
+import { initTheme } from './core/theme'
 import { logger } from './core/logger'
 import './index.css'
 
 installGlobalErrorHandlers()
+initTheme()
 
 logger.info('app boot', {
   mode: import.meta.env.MODE,

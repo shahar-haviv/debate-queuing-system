@@ -5,6 +5,7 @@ import ConfigBanner from './components/ui/ConfigBanner'
 import RequireAdmin from './components/features/RequireAdmin'
 import { CurrentEventProvider } from './hooks/useCurrentEvent'
 import Login from './pages/Login'
+import MainOffice from './pages/MainOffice'
 import Admin from './pages/Admin'
 import EventHub from './pages/EventHub'
 import EventPlanner from './pages/EventPlanner'
@@ -27,7 +28,6 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/admin" replace />} />
       <Route path="/login" element={<Login />} />
 
       {/* Club Training & Smart BP Room Draw Module (src/training) */}
@@ -70,6 +70,8 @@ export default function App() {
           </RequireAdmin>
         }
       >
+        <Route path="/" element={<MainOffice />} />
+        <Route path="/home" element={<MainOffice />} />
         <Route path="/admin" element={<EventHub />} />
         <Route path="/admin/training" element={<Navigate to="/training" replace />} />
         <Route path="/admin/forms" element={<FormStudio />} />

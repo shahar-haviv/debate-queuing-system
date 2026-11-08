@@ -1,6 +1,7 @@
-import { useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import BrandMark from '../../components/ui/BrandMark'
+import PaletteSwitcher from '../../components/ui/PaletteSwitcher'
 import {
   ALL_ROOM_ROLES,
   BP_POSITIONS,
@@ -51,7 +52,21 @@ export default function TrainingHub() {
     actions,
   } = useTraining()
 
-  const [activeTab, setActiveTab] = useState<TrainingTab>('checkin')
+  const [searchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState<TrainingTab>(() => {
+    const q = searchParams.get('tab') as TrainingTab | null
+    if (q && ['checkin', 'draw', 'results', 'roster', 'motions'].includes(q)) {
+      return q
+    }
+    return 'checkin'
+  })
+
+  useEffect(() => {
+    const q = searchParams.get('tab') as TrainingTab | null
+    if (q && ['checkin', 'draw', 'results', 'roster', 'motions'].includes(q)) {
+      setActiveTab(q)
+    }
+  }, [searchParams])
   const [selectedSessionId, setSelectedSessionId] = useState<string>(
     () => sessions[0]?.id ?? '',
   )
@@ -370,8 +385,17 @@ export default function TrainingHub() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <PaletteSwitcher />
+
+            <Link
+              to="/"
+              className="rounded-full border border-border bg-white px-3.5 py-1.5 text-xs font-bold text-primary shadow-2xs transition hover:bg-secondary/40"
+            >
+              ← Main Office
+            </Link>
+
             {/* Persona / Google SSO Switcher */}
-            <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 py-1">
+            <div className="flex items-center gap-1.5 rounded-full border border-border bg-muted/60 px-3 py-1">
               <span className="text-[11px] font-semibold text-muted-foreground">Signed in:</span>
               <select
                 aria-label="Active member persona"
@@ -390,7 +414,7 @@ export default function TrainingHub() {
             <button
               type="button"
               onClick={() => setSsoModalOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-2xs transition hover:bg-muted"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-2xs transition hover:bg-muted"
             >
               <span className="size-2 rounded-full bg-status-finished" />
               + Google SSO Join
@@ -398,16 +422,16 @@ export default function TrainingHub() {
 
             <Link
               to={activeSession ? `/training/projection?session=${activeSession.id}` : '/training/projection'}
-              className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted"
             >
               Projector View
             </Link>
 
             <Link
               to="/admin"
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+              className="rounded-full bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground transition hover:opacity-95"
             >
-              ← Queue Back Office
+              Screening Queue
             </Link>
           </div>
         </div>

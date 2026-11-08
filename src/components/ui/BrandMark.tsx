@@ -1,36 +1,49 @@
 import { useState } from 'react'
+import { Link, useInRouterContext } from 'react-router-dom'
 
 /**
- * The app logo.
+ * The IDC Debate Society logo & Main Office Home button.
  *
- * Drop the official artwork at `public/ru-debate.png` and it appears here (and
- * as the browser favicon). Until that file exists the component falls back to
- * a plain "CQ" badge, so nothing ever renders as a broken image.
+ * Clicking the IDC icon anywhere in the application navigates back to the
+ * Main Office (`/`) homepage.
  */
 export interface BrandMarkProps {
   className?: string
+  to?: string
 }
 
-export default function BrandMark({ className = 'size-9' }: BrandMarkProps) {
+export default function BrandMark({ className = 'size-9', to = '/' }: BrandMarkProps) {
   const [missing, setMissing] = useState(false)
+  const inRouter = useInRouterContext()
 
-  if (missing) {
-    return (
-      <span
-        aria-hidden="true"
-        className={`flex shrink-0 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground ${className}`}
-      >
-        CQ
-      </span>
-    )
+  const badge = missing ? (
+    <span
+      aria-hidden="true"
+      className={`flex shrink-0 items-center justify-center rounded-xl bg-primary text-xs font-extrabold tracking-tight text-primary-foreground shadow-xs transition group-hover:scale-105 ${className}`}
+    >
+      IDC
+    </span>
+  ) : (
+    <img
+      src="/ru-debate.png"
+      alt="IDC Debate — Main Office"
+      className={`shrink-0 rounded-xl object-contain transition group-hover:scale-105 ${className}`}
+      onError={() => setMissing(true)}
+    />
+  )
+
+  if (!inRouter) {
+    return badge
   }
 
   return (
-    <img
-      src="/ru-debate.png"
-      alt="Reichman University Debate Society"
-      className={`shrink-0 rounded-md object-contain ${className}`}
-      onError={() => setMissing(true)}
-    />
+    <Link
+      to={to}
+      title="Return to Main Office"
+      aria-label="Return to Main Office"
+      className="group inline-flex shrink-0 items-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    >
+      {badge}
+    </Link>
   )
 }

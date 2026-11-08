@@ -12,6 +12,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useEvents } from '../hooks/useEvents'
 import { formatEventDate } from '../domain/events'
 import BrandMark from '../components/ui/BrandMark'
+import PaletteSwitcher from '../components/ui/PaletteSwitcher'
 import EventSettingsModal from '../components/features/EventSettingsModal'
 
 type TabKey = 'upcoming' | 'active' | 'past'
@@ -183,21 +184,28 @@ export default function EventHub() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <PaletteSwitcher />
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-3.5 py-2 text-xs font-bold text-primary shadow-2xs transition hover:bg-secondary/40"
+            >
+              ← Main Office
+            </Link>
             <Link
               to="/training"
-              className="inline-flex items-center gap-2 rounded-md border border-status-debate/30 bg-status-debate/10 px-4 py-2 text-sm font-semibold text-status-debate transition hover:bg-status-debate/20"
+              className="inline-flex items-center gap-2 rounded-full border border-status-debate/30 bg-status-debate/10 px-4 py-2 text-xs font-bold text-primary transition hover:bg-status-debate/20"
             >
               Club Training
             </Link>
             <Link
               to="/admin/forms"
-              className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+              className="inline-flex items-center gap-2 rounded-full border border-input bg-card px-4 py-2 text-xs font-semibold text-foreground transition hover:bg-muted"
             >
               Form Studio
             </Link>
             <Link
               to="/admin/event/new"
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:brightness-110"
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition hover:brightness-110"
             >
               <PlusIcon />
               New Event
@@ -206,7 +214,7 @@ export default function EventHub() {
               type="button"
               onClick={handleSignOut}
               title={user?.email ?? 'Sign out'}
-              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
             >
               Sign out
             </button>
