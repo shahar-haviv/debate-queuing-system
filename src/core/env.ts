@@ -84,8 +84,42 @@ export function getEnv(): AppEnvironment {
 /** Non-throwing status, for the startup configuration screen. */
 export const envStatus = parseEnv(import.meta.env as unknown as Record<string, unknown>)
 
-/** True when the environment passed validation. */
-export const isConfigured = envStatus.ok
+const LOCAL_DB_STORAGE_KEY = 'cq:useLocalDb'
+
+/**
+ * True when the app should use the in-browser Local Sandbox DB instead of Supabase.
+ * Automatically activates in local dev (`vite`) when `.env` is missing, or when
+ * explicitly enabled via `VITE_USE_LOCAL_DB=true` or the UI toggle.
+ */
+export function isLocalSandboxEnabled(): boolean {
+  const rawEnv = import.meta.env as unknown as Record<string, unknown>
+  if (rawEnv.VITE_USE_LOCAL_DB === 'true') return true
+  if (typeof window !== 'undefined') {
+    try {
+      const pref = window.localStorage.getItem(LOCAL_DB_STORAGE_KEY)
+      if (pref === '1') return true
+      if (pref === '0') return false
+    } catch {
+      // ignore storage errors
+    }
+  }
+  if (!envStatus.ok && Boolean(rawEnv.DEV) && !rawEnv.VITEST) {
+    return true
+  }
+  return false
+}
+
+export function setLocalSandboxPreference(enabled: boolean): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(LOCAL_DB_STORAGE_KEY, enabled ? '1' : '0')
+  } catch {
+    // ignore storage errors
+  }
+}
+
+/** True when the environment passed validation or Local Sandbox is active. */
+export const isConfigured = envStatus.ok || isLocalSandboxEnabled()
 
 /** Test seam: forget the cached environment. */
 export function resetEnvCache(): void {

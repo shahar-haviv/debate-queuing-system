@@ -8,7 +8,7 @@
  * admin action from the hub.
  */
 import { useCallback } from 'react'
-import type { Interviewer, NewCandidate, QueueEvent, RoomType } from '../core/types'
+import type { EventFormsConfig, Interviewer, NewCandidate, QueueEvent, RoomType } from '../core/types'
 import { createLogger } from '../core/logger'
 import { useServices } from '../services/container'
 import { dedupeKey } from '../domain/csv'
@@ -29,6 +29,7 @@ export interface EventPlan {
   notes: string
   rooms: PlannerRoom[]
   candidates: NewCandidate[]
+  forms?: EventFormsConfig
 }
 
 export interface EventPlanResult {
@@ -61,6 +62,7 @@ export function useEventPlanner(): EventPlanner {
         date: plan.date,
         notes: plan.notes.trim(),
         status: 'Draft',
+        ...(plan.forms ? { forms: plan.forms } : {}),
       })
       log.info('event draft created', { eventId: event.id, name: event.name })
 

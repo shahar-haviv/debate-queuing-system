@@ -11,17 +11,25 @@
  * mock only needs to implement `DatabaseService`.
  */
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { isLocalSandboxEnabled } from '../core/env'
 import type { DatabaseService } from './database'
+import { createLocalDatabase, resetLocalDatabase } from './localDatabase'
 import { createSupabaseDatabase } from './supabaseDatabase'
 import { getSupabaseClient } from './supabase'
+
+export { resetLocalDatabase }
 
 const ServicesContext = createContext<DatabaseService | null>(null)
 
 let fallback: DatabaseService | null = null
 
-/** The lazily-built production container. */
+/** The lazily-built production or local-sandbox container. */
 export function getServices(): DatabaseService {
-  if (!fallback) fallback = createSupabaseDatabase(() => getSupabaseClient())
+  if (!fallback) {
+    fallback = isLocalSandboxEnabled()
+      ? createLocalDatabase()
+      : createSupabaseDatabase(() => getSupabaseClient())
+  }
   return fallback
 }
 

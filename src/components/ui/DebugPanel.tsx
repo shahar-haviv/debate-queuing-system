@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
+import { isLocalSandboxEnabled } from '../../core/env'
 import type { LogLevel } from '../../core/types'
+import { resetLocalDatabase } from '../../services/container'
 import {
   LEVEL_ORDER,
   clearEntries,
@@ -166,26 +168,43 @@ export default function DebugPanel() {
 
   if (hidden) return null
 
+  const sandboxActive = isLocalSandboxEnabled()
+
+  const handleResetSandbox = () => {
+    resetLocalDatabase()
+    window.location.reload()
+  }
+
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        title="Open debug log (Ctrl+Shift+D)"
-        className="fixed bottom-3 left-3 z-[70] inline-flex items-center gap-1.5 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition hover:text-foreground"
-      >
-        Logs
-        {counts.errors > 0 && (
-          <span className="rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
-            {counts.errors}
+      <div className="fixed bottom-3 left-3 z-[70] flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          title="Open debug log (Ctrl+Shift+D)"
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition hover:text-foreground"
+        >
+          Logs
+          {counts.errors > 0 && (
+            <span className="rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
+              {counts.errors}
+            </span>
+          )}
+          {counts.errors === 0 && counts.warns > 0 && (
+            <span className="rounded-full bg-status-arrived px-1.5 text-[10px] font-bold text-primary-foreground">
+              {counts.warns}
+            </span>
+          )}
+        </button>
+        {sandboxActive && (
+          <span
+            title="Running on in-browser Local Sandbox DB"
+            className="inline-flex items-center gap-1 rounded-full border border-status-finished/30 bg-status-finished/10 px-2.5 py-1.5 text-[11px] font-semibold text-status-finished shadow-sm backdrop-blur"
+          >
+            Local Sandbox DB
           </span>
         )}
-        {counts.errors === 0 && counts.warns > 0 && (
-          <span className="rounded-full bg-status-arrived px-1.5 text-[10px] font-bold text-primary-foreground">
-            {counts.warns}
-          </span>
-        )}
-      </button>
+      </div>
     )
   }
 
@@ -194,6 +213,11 @@ export default function DebugPanel() {
       <div className="mx-auto max-w-[1600px]">
         <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
           <span className="text-xs font-bold uppercase tracking-wide text-foreground">Debug log</span>
+          {sandboxActive && (
+            <span className="rounded bg-status-finished/15 px-1.5 py-0.5 text-[10px] font-semibold text-status-finished">
+              Local Sandbox DB
+            </span>
+          )}
           <span className="text-xs tabular-nums text-muted-foreground">
             {filtered.length}/{entries.length}
           </span>
@@ -233,6 +257,15 @@ export default function DebugPanel() {
           />
 
           <div className="ms-auto flex items-center gap-1.5">
+            {sandboxActive && (
+              <button
+                type="button"
+                onClick={handleResetSandbox}
+                className="rounded border border-status-finished/40 bg-status-finished/10 px-2 py-1 text-xs font-medium text-status-finished transition hover:bg-status-finished/20"
+              >
+                Reset Sandbox Data
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setPaused((prev) => !prev)}

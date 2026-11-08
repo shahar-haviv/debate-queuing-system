@@ -531,6 +531,12 @@ export default function Admin() {
               onChange={handleFile}
             />
             <Link
+              to={eventId ? `/admin/event/${eventId}/forms` : '/admin/forms'}
+              className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              Forms
+            </Link>
+            <Link
               to={eventId ? `/admin/event/${eventId}/analytics` : '/admin'}
               className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
             >

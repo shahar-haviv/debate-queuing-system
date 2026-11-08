@@ -17,14 +17,15 @@ import type {
   ValidationProblem,
   ValidationProblems,
 } from '../core/types'
-import { PERSONAL_INTERVIEW } from '../core/constants'
+import { DEBATE_INTERVIEW, PERSONAL_INTERVIEW } from '../core/constants'
 
-export { PERSONAL_INTERVIEW }
+export { DEBATE_INTERVIEW, PERSONAL_INTERVIEW }
 
 /* Validation messages - the form is Hebrew, so the errors are too. */
 export const REQUIRED_MESSAGE = 'שדה חובה'
 export const NUMBER_MESSAGE = 'יש להזין מספר'
 export const SCALE_MESSAGE = 'יש לבחור ערך בין 1 ל-5'
+export const SELECT_MESSAGE = 'יש לבחור אפשרות מתוך הרשימה'
 
 export const SCALE_MIN = 1
 export const SCALE_MAX = 5
@@ -209,6 +210,106 @@ export const PERSONAL_INTERVIEW_FORM: RubricForm = [
   },
 ]
 
+/**
+ * Standard Debate Interview digital rubric.
+ *
+ * Used when an event enables digital feedback for Debate Interviews, and as a
+ * built-in starting template in the Back Office Form Studio.
+ */
+export const DEBATE_INTERVIEW_FORM: RubricForm = [
+  {
+    id: 'debate_details',
+    part: PART[0],
+    heading: 'פרטי דיבייט',
+    intro: null,
+    questions: [
+      { key: 'interviewer_name', label: 'מי שופט?', type: 'text', required: true, prefill: 'interviewer' },
+      { key: 'candidate_name', label: 'שם מלא של המועמד', type: 'text', required: true, prefill: 'name' },
+      { key: 'candidate_number', label: 'מספר מרואיין', type: 'text', required: true, prefill: 'serial' },
+      {
+        key: 'debate_motion',
+        label: 'נושא הדיבייט (מושן) ועמדת המועמד',
+        type: 'text',
+        required: true,
+        hint: 'למשל: בעד / נגד והמושן שנבחר',
+      },
+    ],
+  },
+  {
+    id: 'debate_performance',
+    part: PART[1],
+    heading: 'ביצוע וטיעון',
+    intro: 'הערכת יכולות הטיעון, המענה לריבאטל והמבנה הלוגי של הנאום.',
+    questions: [
+      {
+        key: 'argument_quality',
+        label: 'בניית טיעון וניתוח לוגי',
+        type: 'textarea',
+        required: true,
+        hint: 'האם המועמד הסביר למה הטענה נכונה ולמה היא חשובה?',
+      },
+      {
+        key: 'rebuttal_responsiveness',
+        label: 'התמודדות עם שאלות ואתגור (POI / ריבאטל)',
+        type: 'textarea',
+        required: true,
+        hint: 'האם המועמד הקשיב והגיב לעניין או חזר על נקודות מוכנות מראש?',
+      },
+    ],
+  },
+  {
+    id: 'debate_rating',
+    part: PART[2],
+    heading: 'דירוג מסכם',
+    intro: 'את החלק הזה ממלאים לאחר שהמועמד יצא מהחדר.',
+    questions: [
+      {
+        key: 'rating_analytical',
+        label: 'יכולת אנליטית ובניית טיעון',
+        type: 'scale',
+        required: true,
+        scaleMin: 1,
+        scaleMax: 5,
+        scaleLabels: {
+          1: 'טענות שטחיות ללא נימוק או קשר לוגי',
+          5: 'ניתוח חד, מובנה ומשכנע מאוד',
+        },
+      },
+      {
+        key: 'rating_rebuttal',
+        label: 'הקשבה, גמישות מחשבתית ומענה לאתגור',
+        type: 'scale',
+        required: true,
+        scaleMin: 1,
+        scaleMax: 5,
+        scaleLabels: {
+          1: 'מתעלם משאלות או ננעל על סיסמאות',
+          5: 'מזהה את לב המחלוקת ומשיב בצורה מדויקת',
+        },
+      },
+      {
+        key: 'rating_rhetoric',
+        label: 'בהירות, רטוריקה ונוכחות',
+        type: 'scale',
+        required: false,
+        scaleMin: 1,
+        scaleMax: 5,
+        scaleLabels: {
+          1: 'קשה למעקב או לא ברור',
+          5: 'רהוט, מובנה, כריזמטי ומשכנע',
+        },
+      },
+      {
+        key: 'interviewer_notes',
+        label: 'סיכום והמלצת השופטים',
+        type: 'textarea',
+        required: false,
+        hint: 'הערות מסכמות לגבי פוטנציאל ההתפתחות בדיבייט',
+      },
+    ],
+  },
+]
+
 /** Every question in the form, in order, with no section wrappers. */
 export function flattenQuestions(form: RubricForm = PERSONAL_INTERVIEW_FORM): FormQuestion[] {
   return form.flatMap((section: FormSection) => section.questions ?? [])
@@ -273,6 +374,29 @@ function asText(value: unknown): string {
   return value === null || value === undefined ? '' : String(value).trim()
 }
 
+/** Parse a comma-separated or array multi-select answer into clean unique options. */
+export function parseMultiSelect(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? '').trim()).filter(Boolean)
+  }
+  const text = asText(value)
+  if (!text) return []
+  return text
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+export function formatMultiSelect(values: string[]): string {
+  return [...new Set(values.map((item) => item.trim()).filter(Boolean))].join(', ')
+}
+
+export function scaleBounds(question: FormQuestion): { min: number; max: number } {
+  const min = Number.isInteger(question.scaleMin) ? (question.scaleMin as number) : SCALE_MIN
+  const max = Number.isInteger(question.scaleMax) ? (question.scaleMax as number) : SCALE_MAX
+  return min < max ? { min, max } : { min: SCALE_MIN, max: SCALE_MAX }
+}
+
 /**
  * What is missing or malformed, as `{ key, label, message }` rows.
  *
@@ -301,8 +425,17 @@ export function validateAnswers(
 
     if (question.type === 'scale') {
       const value = Number(text)
-      if (!Number.isInteger(value) || value < SCALE_MIN || value > SCALE_MAX) {
-        problems.push({ key: question.key, label: question.label, message: SCALE_MESSAGE })
+      const { min, max } = scaleBounds(question)
+      if (!Number.isInteger(value) || value < min || value > max) {
+        const message =
+          min === SCALE_MIN && max === SCALE_MAX ? SCALE_MESSAGE : `יש לבחור ערך בין ${min} ל-${max}`
+        problems.push({ key: question.key, label: question.label, message })
+      }
+    }
+
+    if (question.type === 'select' && question.options && question.options.length > 0) {
+      if (!question.options.includes(text)) {
+        problems.push({ key: question.key, label: question.label, message: SELECT_MESSAGE })
       }
     }
   }
@@ -359,12 +492,14 @@ export function recapRows(
   form: RubricForm = PERSONAL_INTERVIEW_FORM,
   scores: Scores = {},
 ): RecapSection[] {
-  return form.map((section) => ({
+  const knownKeys = new Set<string>()
+  const sections: RecapSection[] = form.map((section) => ({
     id: section.id,
     part: section.part,
     heading: section.heading,
     intro: section.intro,
     rows: (section.questions ?? []).map((question) => {
+      knownKeys.add(question.key)
       const value = scores?.[question.key]
       const blank = value === null || value === undefined || String(value).trim() === ''
       return {
@@ -376,4 +511,27 @@ export function recapRows(
       }
     }),
   }))
+
+  // Preserve visibility of any legacy/custom keys stored on the evaluation row
+  // that are not in the current form definition.
+  const extraEntries = Object.entries(scores ?? {}).filter(
+    ([key, value]) => !knownKeys.has(key) && value !== null && value !== undefined && String(value).trim() !== '',
+  )
+  if (extraEntries.length > 0) {
+    sections.push({
+      id: 'extra_recorded_fields',
+      part: 'נוסף',
+      heading: 'שדות נוספים שנשמרו',
+      intro: null,
+      rows: extraEntries.map(([key, value]) => ({
+        key,
+        label: key,
+        answer: String(value),
+        blank: false,
+        type: typeof value === 'number' ? 'number' : 'text',
+      })),
+    })
+  }
+
+  return sections
 }

@@ -17,6 +17,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import type {
   Answers,
   Candidate,
+  EventFormsConfig,
   Evaluation,
   RecapSection,
   Room,
@@ -29,6 +30,7 @@ import { createLogger } from '../core/logger'
 import { formatDuration, minutesInRoom } from '../domain/time'
 import { longestWaitingOccupant, occupantsOf } from '../domain/rooms'
 import {
+  DEBATE_INTERVIEW,
   PERSONAL_INTERVIEW,
   PERSONAL_INTERVIEW_FORM,
   buildScores,
@@ -38,6 +40,8 @@ import {
   recapRows,
   validateAnswers,
 } from '../domain/evaluation'
+import { resolveTaskFormConfig } from '../domain/formBuilder'
+import { readEventFormsFallback } from '../services/formStorage'
 import { useAuth } from '../hooks/useAuth'
 import { useCandidates } from '../hooks/useCandidates'
 import { useEvaluations } from '../hooks/useEvaluations'
@@ -89,11 +93,21 @@ function Recap({ rows, name }: { rows: RecapSection[]; name: string }) {
 }
 
 /** One previously filed evaluation, collapsed to a summary row. */
-function RecentEvaluation({ evaluation }: { evaluation: Evaluation }) {
+function RecentEvaluation({
+  evaluation,
+  eventForms,
+}: {
+  evaluation: Evaluation
+  eventForms?: EventFormsConfig
+}) {
   const [open, setOpen] = useState(false)
+  const form = useMemo(
+    () => resolveTaskFormConfig(eventForms, evaluation.task ?? PERSONAL_INTERVIEW).sections,
+    [eventForms, evaluation.task],
+  )
   const rows = useMemo(
-    () => recapRows(PERSONAL_INTERVIEW_FORM, evaluation.scores ?? {}),
-    [evaluation.scores],
+    () => recapRows(form, evaluation.scores ?? {}),
+    [evaluation.scores, form],
   )
   const name = evaluation.candidate?.name ?? 'Candidate'
   const at = evaluation.created_at ? new Date(evaluation.created_at) : null
@@ -143,9 +157,14 @@ export default function RoomView() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
-  const { room: roomMeta, loading: roomMetaLoading, error: roomMetaError } = useRoom(roomId)
+  const { room: roomMeta, event: roomEvent, loading: roomMetaLoading, error: roomMetaError } = useRoom(roomId)
   const { candidates, rooms, loading: boardLoading, error: boardError } = useCandidates(roomMeta?.event_id)
   const { evaluations, load: loadEvaluations, save, release } = useEvaluations(roomMeta?.event_id, roomId)
+
+  const eventForms = useMemo<EventFormsConfig | undefined>(
+    () => roomEvent?.forms ?? (roomMeta?.event_id ? readEventFormsFallback(roomMeta.event_id) : undefined),
+    [roomEvent?.forms, roomMeta?.event_id],
+  )
 
   const [answers, setAnswers] = useState<Answers>(() => emptyAnswers(PERSONAL_INTERVIEW_FORM))
   const [errors, setErrors] = useState<ValidationProblems>({})
@@ -175,7 +194,12 @@ export default function RoomView() {
   // one the rubric is about - the same order the dispatcher's rooms panel lists.
   const occupant = room ? longestWaitingOccupant(candidates, room.id) : null
   const task = occupant?.current_task_assignment ?? null
-  const isPersonal = task === PERSONAL_INTERVIEW
+  const activeFormConfig = useMemo(
+    () => (task ? resolveTaskFormConfig(eventForms, task) : null),
+    [eventForms, task],
+  )
+  const activeForm = activeFormConfig?.sections ?? PERSONAL_INTERVIEW_FORM
+  const hasDigitalForm = Boolean(occupant && task && activeFormConfig?.enabled)
 
   const notify = useCallback(
     (message: string, tone: ToastTone = 'info') => setToast({ message, tone, id: Date.now() }),
@@ -202,9 +226,9 @@ export default function RoomView() {
   const initial = useMemo(
     () =>
       occupant && room
-        ? initialAnswers(occupant, room, PERSONAL_INTERVIEW_FORM)
-        : emptyAnswers(PERSONAL_INTERVIEW_FORM),
-    [occupant, room],
+        ? initialAnswers(occupant, room, activeForm)
+        : emptyAnswers(activeForm),
+    [activeForm, occupant, room],
   )
 
   /*
@@ -215,13 +239,13 @@ export default function RoomView() {
    */
   const initialisedForRef = useRef<string | null>(null)
   useEffect(() => {
-    const key = occupant && room ? `${occupant.id}:${room.id}` : null
+    const key = occupant && room ? `${occupant.id}:${room.id}:${task ?? ''}` : null
     if (initialisedForRef.current === key) return
     initialisedForRef.current = key
     setErrors({})
     setAnswers(initial)
     setRecap((current) => (current && occupant && current.candidateId !== occupant.id ? null : current))
-  }, [initial, occupant, room])
+  }, [initial, occupant, room, task])
 
   /** Anything the interviewer has entered beyond what the board prefilled. */
   const typedSomething = useMemo(
@@ -241,8 +265,9 @@ export default function RoomView() {
 
   const handleSubmit = useCallback(async () => {
     if (!occupant || !room) return
+    const currentTask = task ?? PERSONAL_INTERVIEW
 
-    const problems = validateAnswers(PERSONAL_INTERVIEW_FORM, answers)
+    const problems = validateAnswers(activeForm, answers)
     if (problems.length > 0) {
       setErrors(problemMap(problems))
       log.warn('evaluation blocked by validation', {
@@ -255,14 +280,14 @@ export default function RoomView() {
     }
 
     setBusy(true)
-    const scores = buildScores(PERSONAL_INTERVIEW_FORM, answers)
-    log.info('submitting evaluation', { candidate: occupant.id, room: room.id })
+    const scores = buildScores(activeForm, answers)
+    log.info('submitting evaluation', { candidate: occupant.id, room: room.id, task: currentTask })
 
     try {
       await save({
         candidate_id: occupant.id,
         room_id: room.id,
-        task: PERSONAL_INTERVIEW,
+        task: currentTask,
         interviewer_name: String(answers.interviewer_name ?? '').trim() || null,
         scores,
         submitted_by: user?.email ?? null,
@@ -276,7 +301,8 @@ export default function RoomView() {
     }
 
     try {
-      await release(occupant.id)
+      if (currentTask === DEBATE_INTERVIEW) await release(occupant.id, DEBATE_INTERVIEW)
+      else await release(occupant.id)
     } catch (cause) {
       // The scores are already stored, so say so - the interviewer only needs to
       // retry the release, not re-type the rubric.
@@ -288,13 +314,14 @@ export default function RoomView() {
     }
 
     setBusy(false)
-    setRecap({ candidateId: occupant.id, name: occupant.name, rows: recapRows(PERSONAL_INTERVIEW_FORM, scores) })
+    setRecap({ candidateId: occupant.id, name: occupant.name, rows: recapRows(activeForm, scores) })
     notify('Evaluation saved and the room released.', 'success')
     await loadEvaluations('after-submit')
-  }, [answers, loadEvaluations, notify, occupant, release, room, save, user?.email])
+  }, [activeForm, answers, loadEvaluations, notify, occupant, release, room, save, task, user?.email])
 
   const handleSkip = useCallback(async () => {
     if (!occupant) return
+    const currentTask = task ?? PERSONAL_INTERVIEW
 
     // Only worth a confirmation if there is typing to lose.
     if (
@@ -305,10 +332,11 @@ export default function RoomView() {
     }
 
     setBusy(true)
-    log.info('skipping digital feedback', { candidate: occupant.id, room: room?.id })
+    log.info('skipping digital feedback', { candidate: occupant.id, room: room?.id, task: currentTask })
 
     try {
-      await release(occupant.id)
+      if (currentTask === DEBATE_INTERVIEW) await release(occupant.id, DEBATE_INTERVIEW)
+      else await release(occupant.id)
     } catch (cause) {
       setBusy(false)
       const message = cause instanceof Error ? cause.message : 'Unknown error'
@@ -320,7 +348,7 @@ export default function RoomView() {
     setRecap({ candidateId: occupant.id, name: occupant.name, rows: null })
     notify('Room released without an evaluation.', 'info')
     await loadEvaluations('after-skip')
-  }, [loadEvaluations, notify, occupant, release, room?.id, typedSomething])
+  }, [loadEvaluations, notify, occupant, release, room?.id, task, typedSomething])
 
   const handleSignOut = useCallback(async () => {
     await signOut()
@@ -458,7 +486,7 @@ export default function RoomView() {
           )}
         </section>
 
-        {/* The rubric - only for a Personal Interview. */}
+        {/* The rubric - rendered whenever the active task's digital form is enabled. */}
         {recap ? (
           <div className="space-y-4">
             {recap.rows ? (
@@ -472,12 +500,15 @@ export default function RoomView() {
               The room is free again - the dispatcher board already shows it as empty.
             </p>
           </div>
-        ) : occupant && isPersonal ? (
+        ) : occupant && hasDigitalForm && activeFormConfig ? (
           <EvaluationForm
-            form={PERSONAL_INTERVIEW_FORM}
+            form={activeFormConfig.sections}
             values={answers}
             errors={errors}
             busy={busy}
+            direction={activeFormConfig.direction}
+            submitLabel={activeFormConfig.submitLabel}
+            skipLabel={activeFormConfig.skipLabel}
             onChange={handleChange}
             onSubmit={handleSubmit}
             onSkip={handleSkip}
@@ -489,14 +520,24 @@ export default function RoomView() {
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
               The digital rubric is only defined for a Personal Interview. Mark a Debate Interview complete from the
-              dispatch board once it is done.
+              dispatch board once it is done, or enable a digital Debate form in the Back Office Form Studio.
             </p>
-            <Link
-              to="/admin"
-              className="mt-4 inline-block rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
-            >
-              Open the dispatch board
-            </Link>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link
+                to="/admin"
+                className="inline-block rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+              >
+                Open the dispatch board
+              </Link>
+              {roomMeta?.event_id && (
+                <Link
+                  to={`/admin/event/${roomMeta.event_id}/forms`}
+                  className="inline-block rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+                >
+                  Configure event forms
+                </Link>
+              )}
+            </div>
           </section>
         ) : (
           <section className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground">
@@ -512,7 +553,7 @@ export default function RoomView() {
             </h2>
             <ul className="mt-2 space-y-1.5">
               {evaluations.map((evaluation) => (
-                <RecentEvaluation key={evaluation.id} evaluation={evaluation} />
+                <RecentEvaluation key={evaluation.id} evaluation={evaluation} eventForms={eventForms} />
               ))}
             </ul>
           </section>

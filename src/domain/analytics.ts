@@ -21,7 +21,7 @@ import type {
   Scores,
 } from '../core/types'
 import { LONG_SESSION_MINUTES, UNATTRIBUTED, UNKNOWN_ROOM } from '../core/constants'
-import { PERSONAL_INTERVIEW_FORM, flattenQuestions } from './evaluation'
+import { DEBATE_INTERVIEW_FORM, PERSONAL_INTERVIEW_FORM, flattenQuestions } from './evaluation'
 
 export const EVENT = {
   ARRIVED: 'arrived',
@@ -42,6 +42,12 @@ export { LONG_SESSION_MINUTES, UNKNOWN_ROOM, UNATTRIBUTED }
 export const SCALE_KEYS: string[] = flattenQuestions(PERSONAL_INTERVIEW_FORM)
   .filter((question) => question.type === 'scale')
   .map((question) => question.key)
+
+const DEBATE_SCALE_KEYS: string[] = flattenQuestions(DEBATE_INTERVIEW_FORM)
+  .filter((question) => question.type === 'scale')
+  .map((question) => question.key)
+
+const NON_RATING_NUMERIC_KEYS = new Set(['age', 'years_remaining', 'candidate_number'])
 
 export function mean(values: Array<number | null | undefined> = []): number | null {
   const clean = values.filter((value): value is number => Number.isFinite(value))
@@ -200,10 +206,18 @@ export function waitTimes(events: CandidateEvent[] = []): number[] {
 
 /** The average of the 1-5 ratings in one filed rubric, or null if none. */
 export function rubricScore(scores: Scores = {}): number | null {
-  return mean(SCALE_KEYS.map((key) => {
-    const value = scores?.[key]
-    return typeof value === 'number' ? value : null
-  }))
+  const knownRatingKeys = new Set([...SCALE_KEYS, ...DEBATE_SCALE_KEYS])
+  for (const key of Object.keys(scores ?? {})) {
+    if (!NON_RATING_NUMERIC_KEYS.has(key) && (key.startsWith('rating_') || key.startsWith('scale_'))) {
+      knownRatingKeys.add(key)
+    }
+  }
+  return mean(
+    [...knownRatingKeys].map((key) => {
+      const value = scores?.[key]
+      return typeof value === 'number' ? value : null
+    }),
+  )
 }
 
 /**

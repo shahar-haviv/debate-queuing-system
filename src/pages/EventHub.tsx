@@ -109,23 +109,29 @@ function EventCard({
         <p className="mt-3 line-clamp-3 text-xs leading-relaxed text-muted-foreground">{event.notes}</p>
       )}
 
-      <div className="mt-auto flex flex-wrap gap-2 pt-4">
+      <div className="mt-auto grid grid-cols-2 gap-2 pt-4">
         <Link
           to={`/admin/event/${event.id}/queue`}
-          className="inline-flex flex-1 items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:brightness-110"
+          className="col-span-2 inline-flex items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition hover:brightness-110"
         >
           Open Live Queue
         </Link>
         <Link
+          to={`/admin/event/${event.id}/forms`}
+          className="inline-flex items-center justify-center rounded-md border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+        >
+          Configure Forms
+        </Link>
+        <Link
           to={`/admin/event/${event.id}/analytics`}
-          className="inline-flex flex-1 items-center justify-center rounded-md border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+          className="inline-flex items-center justify-center rounded-md border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
         >
           View Analytics
         </Link>
         <button
           type="button"
           onClick={() => onEdit(event)}
-          className="inline-flex flex-1 items-center justify-center rounded-md border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+          className="col-span-2 inline-flex items-center justify-center rounded-md border border-input bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
         >
           Edit Settings
         </button>
@@ -177,6 +183,12 @@ export default function EventHub() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/admin/forms"
+              className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              Form Studio
+            </Link>
             <Link
               to="/admin/event/new"
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:brightness-110"

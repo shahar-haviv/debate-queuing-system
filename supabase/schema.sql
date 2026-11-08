@@ -44,6 +44,7 @@ create table if not exists public.events (
   date       date not null,
   status     public.event_status not null default 'Draft',
   notes      text not null default '',
+  forms      jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   constraint events_name_not_blank check (length(btrim(name)) > 0)
 );
@@ -157,6 +158,7 @@ alter table public.rooms replica identity full;
 --     columns introduced after the first release are declared here too. Both
 --     paths are idempotent, so this file stays safe to re-run at any time.
 -- ---------------------------------------------------------------------------
+alter table public.events      add column if not exists forms         jsonb not null default '{}'::jsonb;
 alter table public.rooms      add column if not exists interviewers  jsonb not null default '[]'::jsonb;
 alter table public.candidates add column if not exists room_entry_time   timestamptz;
 alter table public.candidates add column if not exists interviewer_constraints text[] not null default '{}';

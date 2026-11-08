@@ -5,11 +5,18 @@
  * The exact zod problems are rendered so the fix is obvious - "something went
  * wrong" is not a deployment instruction.
  */
+import { setLocalSandboxPreference } from '../../core/env'
+
 export interface ConfigBannerProps {
   problems?: string[]
 }
 
 export default function ConfigBanner({ problems = [] }: ConfigBannerProps) {
+  const handleStartSandbox = () => {
+    setLocalSandboxPreference(true)
+    window.location.reload()
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
       <div className="w-full max-w-lg rounded-lg border border-border bg-card p-8 shadow-sm">
@@ -36,6 +43,19 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...`}
         <p className="mt-4 text-xs text-muted-foreground">
           Find both in Supabase Dashboard - Project Settings - API.
         </p>
+
+        <div className="mt-6 border-t border-border pt-5">
+          <p className="text-xs text-muted-foreground">
+            Testing locally without Supabase credentials? Start the built-in Local Sandbox DB with pre-seeded events, rooms, and candidates:
+          </p>
+          <button
+            type="button"
+            onClick={handleStartSandbox}
+            className="mt-3 inline-flex w-full items-center justify-center rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+          >
+            Launch Local Sandbox Mode (No Supabase Required)
+          </button>
+        </div>
       </div>
     </div>
   )

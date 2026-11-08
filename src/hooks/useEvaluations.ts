@@ -9,7 +9,8 @@
  *      itself and cannot disagree with the dispatcher view about it.
  */
 import { useCallback, useEffect, useState } from 'react'
-import type { Evaluation, NewEvaluation } from '../core/types'
+import type { Evaluation, NewEvaluation, TaskAssignment } from '../core/types'
+import { DEBATE_INTERVIEW } from '../core/constants'
 import { createLogger } from '../core/logger'
 import { useServices } from '../services/container'
 
@@ -19,7 +20,7 @@ export interface EvaluationsState {
   evaluations: Evaluation[]
   load: (reason?: string) => Promise<void>
   save: (input: NewEvaluation) => Promise<void>
-  release: (candidateId: string) => Promise<void>
+  release: (candidateId: string, task?: TaskAssignment | null) => Promise<void>
 }
 
 export function useEvaluations(eventId: string | undefined, roomId: string | undefined): EvaluationsState {
@@ -53,9 +54,13 @@ export function useEvaluations(eventId: string | undefined, roomId: string | und
   )
 
   const release = useCallback(
-    async (candidateId: string) => {
-      const updated = await candidates.update(candidateId, { personal_interview_completed: true })
-      log.info('room released', { id: candidateId, room: updated.assigned_room })
+    async (candidateId: string, task?: TaskAssignment | null) => {
+      const patch =
+        task === DEBATE_INTERVIEW
+          ? { debate_interview_completed: true }
+          : { personal_interview_completed: true }
+      const updated = await candidates.update(candidateId, patch)
+      log.info('room released', { id: candidateId, task: task ?? 'Personal Interview', room: updated.assigned_room })
     },
     [candidates],
   )

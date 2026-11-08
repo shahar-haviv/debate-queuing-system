@@ -9,8 +9,19 @@
  * because the rest of the app is English chrome. The two closing buttons live in
  * a `sticky bottom-0` bar so they cannot be scrolled out of reach.
  */
-import type { Answers, FormQuestion, RubricForm, ValidationProblems } from '../../core/types'
-import { flattenQuestions } from '../../domain/evaluation'
+import type {
+  Answers,
+  FormDirection,
+  FormQuestion,
+  RubricForm,
+  ValidationProblems,
+} from '../../core/types'
+import {
+  flattenQuestions,
+  formatMultiSelect,
+  parseMultiSelect,
+  scaleBounds,
+} from '../../domain/evaluation'
 
 const inputClass =
   'w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:ring-2 focus:ring-ring disabled:opacity-60'
@@ -77,7 +88,12 @@ function ScaleQuestion({
   onChange: (key: string, value: string) => void
 }) {
   const labels = question.scaleLabels ?? {}
-  const values = [1, 2, 3, 4, 5]
+  const { min, max } = scaleBounds(question)
+  const values: number[] = []
+  for (let score = min; score <= max; score += 1) values.push(score)
+
+  const lowLabel = labels[min] ?? labels[1]
+  const highLabel = labels[max] ?? labels[5]
 
   return (
     <fieldset className="space-y-1.5" disabled={disabled}>
@@ -85,6 +101,13 @@ function ScaleQuestion({
         <legend className="text-sm font-semibold leading-relaxed text-foreground">{question.label}</legend>
         {question.required && <RequiredMark />}
       </div>
+
+      {question.hint && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <span aria-hidden="true">&#8627; </span>
+          {question.hint}
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-1.5">
         {values.map((score) => {
@@ -117,12 +140,154 @@ function ScaleQuestion({
         })}
       </div>
 
-      {(labels[1] || labels[5]) && (
+      {(lowLabel || highLabel) && (
         <div className="flex items-start justify-between gap-3 text-[11px] leading-snug text-muted-foreground">
-          <span className="max-w-[45%]">{labels[1] && `1 — ${labels[1]}`}</span>
-          <span className="max-w-[45%] text-end">{labels[5] && `5 — ${labels[5]}`}</span>
+          <span className="max-w-[45%]">{lowLabel && `${min} — ${lowLabel}`}</span>
+          <span className="max-w-[45%] text-end">{highLabel && `${max} — ${highLabel}`}</span>
         </div>
       )}
+
+      {error && (
+        <p role="alert" className="text-xs font-medium text-destructive">
+          {error}
+        </p>
+      )}
+    </fieldset>
+  )
+}
+
+function MultiSelectQuestion({
+  question,
+  value,
+  error,
+  disabled,
+  onChange,
+}: {
+  question: FormQuestion
+  value?: string
+  error?: string
+  disabled: boolean
+  onChange: (key: string, value: string) => void
+}) {
+  const options = question.options ?? []
+  const selectedSet = new Set(parseMultiSelect(value))
+
+  const toggle = (option: string) => {
+    const next = new Set(selectedSet)
+    if (next.has(option)) next.delete(option)
+    else next.add(option)
+    onChange(question.key, formatMultiSelect([...next]))
+  }
+
+  return (
+    <fieldset className="space-y-1.5" disabled={disabled}>
+      <div className="flex items-start gap-1">
+        <legend className="text-sm font-semibold leading-relaxed text-foreground">{question.label}</legend>
+        {question.required && <RequiredMark />}
+      </div>
+
+      {question.hint && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <span aria-hidden="true">&#8627; </span>
+          {question.hint}
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-2 pt-0.5">
+        {options.map((option) => {
+          const checked = selectedSet.has(option)
+          return (
+            <label
+              key={option}
+              className={`inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition ${
+                checked
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : 'border-input bg-card text-foreground hover:bg-muted'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={disabled}
+                onChange={() => toggle(option)}
+                className="accent-primary"
+              />
+              <span>{option}</span>
+            </label>
+          )
+        })}
+      </div>
+
+      {error && (
+        <p role="alert" className="text-xs font-medium text-destructive">
+          {error}
+        </p>
+      )}
+    </fieldset>
+  )
+}
+
+function BooleanQuestion({
+  question,
+  value,
+  error,
+  disabled,
+  direction,
+  onChange,
+}: {
+  question: FormQuestion
+  value?: string
+  error?: string
+  disabled: boolean
+  direction: FormDirection
+  onChange: (key: string, value: string) => void
+}) {
+  const choices = direction === 'ltr' ? ['Yes', 'No'] : ['כן', 'לא']
+
+  return (
+    <fieldset className="space-y-1.5" disabled={disabled}>
+      <div className="flex items-start gap-1">
+        <legend className="text-sm font-semibold leading-relaxed text-foreground">{question.label}</legend>
+        {question.required && <RequiredMark />}
+      </div>
+
+      {question.hint && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <span aria-hidden="true">&#8627; </span>
+          {question.hint}
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-2 pt-0.5">
+        {choices.map((choice) => {
+          const id = `${fieldId(question.key)}-${choice}`
+          const selected = value === choice
+          return (
+            <label
+              key={choice}
+              htmlFor={id}
+              className={`cursor-pointer rounded-md border px-4 py-1.5 text-sm font-medium transition focus-within:ring-2 focus-within:ring-ring ${
+                selected
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-input bg-card text-foreground hover:border-primary/50'
+              }`}
+            >
+              <input
+                id={id}
+                type="radio"
+                name={question.key}
+                value={choice}
+                checked={selected}
+                disabled={disabled}
+                onChange={() => onChange(question.key, choice)}
+                aria-label={`${question.label} — ${choice}`}
+                className="sr-only"
+              />
+              {choice}
+            </label>
+          )
+        })}
+      </div>
 
       {error && (
         <p role="alert" className="text-xs font-medium text-destructive">
@@ -138,12 +303,14 @@ function Question({
   value,
   error,
   disabled,
+  direction,
   onChange,
 }: {
   question: FormQuestion
   value?: string
   error?: string
   disabled: boolean
+  direction: FormDirection
   onChange: (key: string, value: string) => void
 }) {
   if (question.type === 'scale') {
@@ -152,7 +319,48 @@ function Question({
     )
   }
 
+  if (question.type === 'multiselect') {
+    return (
+      <MultiSelectQuestion question={question} value={value} error={error} disabled={disabled} onChange={onChange} />
+    )
+  }
+
+  if (question.type === 'boolean') {
+    return (
+      <BooleanQuestion
+        question={question}
+        value={value}
+        error={error}
+        disabled={disabled}
+        direction={direction}
+        onChange={onChange}
+      />
+    )
+  }
+
   const id = fieldId(question.key)
+
+  if (question.type === 'select') {
+    const options = question.options ?? []
+    return (
+      <QuestionShell question={question} error={error}>
+        <select
+          id={id}
+          value={value ?? ''}
+          disabled={disabled}
+          onChange={(event) => onChange(question.key, event.target.value)}
+          className={inputClass}
+        >
+          <option value="">{direction === 'ltr' ? 'Select an option…' : 'בחרו אפשרות…'}</option>
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </QuestionShell>
+    )
+  }
 
   if (question.type === 'textarea') {
     return (
@@ -162,6 +370,7 @@ function Question({
           rows={3}
           value={value ?? ''}
           disabled={disabled}
+          placeholder={question.placeholder}
           onChange={(event) => onChange(question.key, event.target.value)}
           className={`${inputClass} resize-y leading-relaxed`}
         />
@@ -178,6 +387,7 @@ function Question({
         dir={question.type === 'number' ? 'ltr' : undefined}
         value={value ?? ''}
         disabled={disabled}
+        placeholder={question.placeholder}
         onChange={(event) => onChange(question.key, event.target.value)}
         className={inputClass}
       />
@@ -190,6 +400,7 @@ export interface EvaluationFormProps {
   values?: Answers
   errors?: ValidationProblems
   busy?: boolean
+  direction?: FormDirection
   onChange: (key: string, value: string) => void
   onSubmit?: () => void
   onSkip?: () => void
@@ -202,6 +413,7 @@ export default function EvaluationForm({
   values = {},
   errors = {},
   busy = false,
+  direction = 'rtl',
   onChange,
   onSubmit,
   onSkip,
@@ -219,7 +431,13 @@ export default function EvaluationForm({
   }
 
   return (
-    <form dir="rtl" lang="he" onSubmit={handleSubmit} aria-busy={busy} className="space-y-4">
+    <form
+      dir={direction}
+      lang={direction === 'ltr' ? 'en' : 'he'}
+      onSubmit={handleSubmit}
+      aria-busy={busy}
+      className="space-y-4"
+    >
       {form.map((section) => (
         <section key={section.id} className="rounded-lg border border-border bg-card p-4 shadow-sm sm:p-5">
           <header className="border-b border-border pb-3">
@@ -240,6 +458,7 @@ export default function EvaluationForm({
                 value={values[question.key]}
                 error={errors[question.key]}
                 disabled={busy}
+                direction={direction}
                 onChange={onChange}
               />
             ))}
@@ -270,7 +489,7 @@ export default function EvaluationForm({
 
           {missing > 0 && (
             <p className="self-center text-xs text-muted-foreground sm:me-auto">
-              {missing} שדות חובה טרם מולאו
+              {direction === 'ltr' ? `${missing} required field(s) remaining` : `${missing} שדות חובה טרם מולאו`}
             </p>
           )}
         </div>

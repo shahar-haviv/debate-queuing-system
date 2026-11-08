@@ -23,6 +23,8 @@ import type {
 import type { RoomType } from '../core/types'
 import { createLogger } from '../core/logger'
 import { cleanInterviewerRows } from '../domain/conflicts'
+import { normalizeEventForms } from '../domain/formBuilder'
+import { readEventFormsFallback, writeEventFormsFallback } from './formStorage'
 import type {
   AuthGateway,
   AuthSession,
@@ -68,13 +70,16 @@ function toRoom(row: Record<string, unknown>): Room {
 }
 
 function toEvent(row: Record<string, unknown>): QueueEvent {
+  const id = String(row.id)
+  const forms = normalizeEventForms(row.forms) ?? readEventFormsFallback(id)
   return {
-    id: String(row.id),
+    id,
     name: String(row.name ?? ''),
     date: String(row.date ?? ''),
     status: row.status === 'Active' || row.status === 'Completed' ? row.status : 'Draft',
     notes: String(row.notes ?? ''),
     created_at: String(row.created_at ?? ''),
+    ...(forms ? { forms } : {}),
   }
 }
 
@@ -146,13 +151,38 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
     },
 
     async create(input: NewEvent) {
-      const { data, error } = await db().from('events').insert(input).select().single()
+      const { forms, ...rest } = input
+      const payload = forms ? { ...rest, forms } : rest
+      const { data, error } = await db().from('events').insert(payload).select().single()
+      if (error && forms) {
+        // Fallback when the remote database has not had `events.forms` pushed yet.
+        const retry = await db().from('events').insert(rest).select().single()
+        if (retry.error) raise(retry.error)
+        const created = toEvent(retry.data as Record<string, unknown>)
+        writeEventFormsFallback(created.id, forms)
+        return { ...created, forms }
+      }
       if (error) raise(error)
-      return toEvent(data as Record<string, unknown>)
+      const created = toEvent(data as Record<string, unknown>)
+      if (forms) writeEventFormsFallback(created.id, forms)
+      return forms ? { ...created, forms } : created
     },
 
     async update(id, patch: EventPatch) {
-      const { data, error } = await db().from('events').update(patch).eq('id', id).select().single()
+      const { forms, ...rest } = patch
+      if (forms !== undefined) writeEventFormsFallback(id, forms)
+      const payload = forms !== undefined ? { ...rest, forms } : rest
+      const { data, error } = await db().from('events').update(payload).eq('id', id).select().single()
+      if (error && forms !== undefined) {
+        if (Object.keys(rest).length === 0) {
+          const existing = await events.findById(id)
+          if (!existing) raise(error)
+          return { ...existing, forms }
+        }
+        const retry = await db().from('events').update(rest).eq('id', id).select().single()
+        if (retry.error) raise(retry.error)
+        return { ...toEvent(retry.data as Record<string, unknown>), forms }
+      }
       if (error) raise(error)
       return toEvent(data as Record<string, unknown>)
     },

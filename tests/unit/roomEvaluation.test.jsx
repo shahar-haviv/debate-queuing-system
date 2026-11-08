@@ -15,6 +15,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import RoomView from '../../src/pages/RoomView'
+import { defaultDebateFormConfig } from '../../src/domain/formBuilder'
+import { writeEventFormsFallback } from '../../src/services/formStorage'
 
 /* ------------------------------- the board ------------------------------- */
 
@@ -275,6 +277,56 @@ describe('RoomView — which rubric is on screen', () => {
 
     expect(await screen.findByText(/is in a Debate Interview/)).toBeInTheDocument()
     expect(screen.queryByText('מי מראיין?')).not.toBeInTheDocument()
+  })
+
+  it('opens the configured Debate Interview rubric and releases debate_interview_completed when enabled for the event', async () => {
+    writeEventFormsFallback('event-1', {
+      'Debate Interview': {
+        ...defaultDebateFormConfig(true),
+        sections: [
+          {
+            id: 'd1',
+            part: 'חלק 1',
+            heading: 'שיפוט דיבייט',
+            intro: null,
+            questions: [
+              { key: 'interviewer_name', label: 'מי שופט?', type: 'text', required: true, prefill: 'interviewer' },
+              { key: 'rating_analytical', label: 'ציון טיעון', type: 'scale', required: true },
+            ],
+          },
+        ],
+      },
+    })
+
+    try {
+      setup({
+        rooms: [room({ room_type: 'Debate', interviewers: [{ name: 'Daniel', phone: null }] })],
+        candidates: [
+          person({
+            current_task_assignment: 'Debate Interview',
+            debate_interview_completed: false,
+          }),
+        ],
+      })
+
+      expect(await screen.findByLabelText('מי שופט?')).toHaveValue('Daniel')
+      fireEvent.click(screen.getByRole('radio', { name: 'ציון טיעון — 5' }))
+      fireEvent.submit(
+        screen.getByRole('button', { name: 'Submit Evaluation & Release Room' }).closest('form'),
+      )
+
+      await waitFor(() => expect(db.saved).toHaveLength(1))
+      expect(db.saved[0]).toMatchObject({
+        candidate_id: 'c1',
+        room_id: 'r1',
+        task: 'Debate Interview',
+        interviewer_name: 'Daniel',
+        scores: { interviewer_name: 'Daniel', rating_analytical: 5 },
+      })
+      expect(db.released).toEqual([{ id: 'c1', patch: { debate_interview_completed: true } }])
+    } finally {
+      writeEventFormsFallback('event-1', undefined)
+    }
   })
 
   it('says the room is empty rather than showing a form with no candidate', async () => {

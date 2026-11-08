@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AuthProvider } from './hooks/useAuth'
-import { envStatus } from './core/env'
+import { envStatus, isLocalSandboxEnabled } from './core/env'
 import { ServicesProvider } from './services/container'
 import ErrorBoundary from './components/ui/ErrorBoundary'
 import ConfigBanner from './components/ui/ConfigBanner'
@@ -17,6 +17,7 @@ installGlobalErrorHandlers()
 
 logger.info('app boot', {
   mode: import.meta.env.MODE,
+  localSandbox: isLocalSandboxEnabled(),
   url: window.location.href,
   userAgent: navigator.userAgent,
 })
@@ -27,7 +28,7 @@ if (!root) throw new Error('#root is missing from index.html')
 // The composition root: services are built once here (lazily), and every hook
 // below reads them from context. Swapping Supabase for another backend means
 // passing a different DatabaseService to this provider - no UI change.
-if (!envStatus.ok) {
+if (!envStatus.ok && !isLocalSandboxEnabled()) {
   // Fail fast and explain: no service is constructed without valid config.
   logger.error('environment invalid - refusing to start', { problems: envStatus.problems })
   ReactDOM.createRoot(root).render(

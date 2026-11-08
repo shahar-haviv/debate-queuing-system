@@ -36,6 +36,8 @@ export interface QueueEvent {
   status: EventStatus
   notes: string
   created_at: string
+  /** Optional per-event custom form configurations keyed by interview task. */
+  forms?: EventFormsConfig
 }
 
 /** The hub card's projection: the event plus the two counts it displays. */
@@ -49,9 +51,10 @@ export interface NewEvent {
   date: string
   status?: EventStatus
   notes?: string
+  forms?: EventFormsConfig
 }
 
-export type EventPatch = Partial<Pick<QueueEvent, 'name' | 'date' | 'status' | 'notes'>>
+export type EventPatch = Partial<Pick<QueueEvent, 'name' | 'date' | 'status' | 'notes' | 'forms'>>
 
 /** A 1–5 rubric answer, a free-text answer, or a deliberate blank. */
 export type ScoreValue = string | number | null
@@ -206,13 +209,17 @@ export interface CandidateEvent {
 
 /* -------------------------------- the form ------------------------------- */
 
-export type QuestionType = 'text' | 'textarea' | 'number' | 'scale'
+export type QuestionType =
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'scale'
+  | 'select'
+  | 'multiselect'
+  | 'boolean'
 export type ScoreKey = 'rating_availability' | 'rating_vibe' | 'rating_competitiveness'
 
-export interface ScaleLabels {
-  1?: string
-  5?: string
-}
+export type ScaleLabels = Record<number, string | undefined>
 
 export interface FormQuestion {
   key: string
@@ -222,6 +229,10 @@ export interface FormQuestion {
   prefill?: 'interviewer' | 'name' | 'serial'
   hint?: string
   scaleLabels?: ScaleLabels
+  scaleMin?: number
+  scaleMax?: number
+  options?: string[]
+  placeholder?: string
 }
 
 export interface FormSection {
@@ -233,6 +244,32 @@ export interface FormSection {
 }
 
 export type RubricForm = FormSection[]
+
+export type FormDirection = 'rtl' | 'ltr'
+
+/** Full configuration for one interview task's digital form. */
+export interface TaskFormConfig {
+  enabled: boolean
+  title: string
+  direction: FormDirection
+  submitLabel: string
+  skipLabel: string
+  sections: RubricForm
+}
+
+/** Per-event form configurations for Personal and Debate interviews. */
+export type EventFormsConfig = Partial<Record<TaskAssignment, TaskFormConfig>>
+
+/** A reusable form template stored in the Back Office template library. */
+export interface FormTemplate {
+  id: string
+  name: string
+  description: string
+  task: TaskAssignment
+  builtIn?: boolean
+  config: TaskFormConfig
+  updated_at: string
+}
 
 /** Controlled inputs are strings; numbers are parsed at the boundary. */
 export type Answers = Record<string, string>

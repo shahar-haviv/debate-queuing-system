@@ -1,6 +1,6 @@
 import { Suspense, lazy } from 'react'
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
-import { envStatus } from './core/env'
+import { envStatus, isLocalSandboxEnabled } from './core/env'
 import ConfigBanner from './components/ui/ConfigBanner'
 import RequireAdmin from './components/features/RequireAdmin'
 import { CurrentEventProvider } from './hooks/useCurrentEvent'
@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import Admin from './pages/Admin'
 import EventHub from './pages/EventHub'
 import EventPlanner from './pages/EventPlanner'
+import FormStudio from './pages/FormStudio'
 import CandidateView from './pages/CandidateView'
 import RoomView from './pages/RoomView'
 
@@ -19,8 +20,8 @@ import RoomView from './pages/RoomView'
 const Analytics = lazy(() => import('./pages/Analytics'))
 
 export default function App() {
-  // Startup gate: no screen may render against an unvalidated environment.
-  if (!envStatus.ok) return <ConfigBanner problems={envStatus.problems} />
+  // Startup gate: no screen may render against an unvalidated environment unless Local Sandbox is enabled.
+  if (!envStatus.ok && !isLocalSandboxEnabled()) return <ConfigBanner problems={envStatus.problems} />
 
   return (
     <Routes>
@@ -36,6 +37,7 @@ export default function App() {
         }
       >
         <Route path="/admin" element={<EventHub />} />
+        <Route path="/admin/forms" element={<FormStudio />} />
         <Route path="/admin/event/new" element={<EventPlanner />} />
 
         {/* The event id in the URL is the single source of truth for all
@@ -50,6 +52,7 @@ export default function App() {
         >
           <Route index element={<Navigate to="queue" replace />} />
           <Route path="queue" element={<Admin />} />
+          <Route path="forms" element={<FormStudio />} />
           <Route
             path="analytics"
             element={

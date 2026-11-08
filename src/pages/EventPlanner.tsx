@@ -8,10 +8,13 @@
  */
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import type { Interviewer, NewCandidate, Room, RoomType } from '../core/types'
+import type { EventFormsConfig, Interviewer, NewCandidate, Room, RoomType } from '../core/types'
+import { DEBATE_INTERVIEW, PERSONAL_INTERVIEW } from '../core/constants'
 import { parseCandidatesCsv, type ParsedCandidates } from '../domain/csv'
 import { formatEventDate, todayIso } from '../domain/events'
+import { cloneTaskFormConfig, defaultDebateFormConfig } from '../domain/formBuilder'
 import { useEventPlanner, type PlannerRoom } from '../hooks/useEventPlanner'
+import { useFormTemplates } from '../hooks/useFormTemplates'
 import BrandMark from '../components/ui/BrandMark'
 import InterviewerModal from '../components/features/InterviewerModal'
 
@@ -56,12 +59,15 @@ function CheckIcon() {
 export default function EventPlanner() {
   const navigate = useNavigate()
   const { create } = useEventPlanner()
+  const { templates } = useFormTemplates()
   const nextKey = useRef(keyFactory())
 
   const [step, setStep] = useState<Step>(1)
   const [name, setName] = useState('')
   const [date, setDate] = useState(todayIso())
   const [notes, setNotes] = useState('')
+  const [personalTemplateId, setPersonalTemplateId] = useState('builtin-personal-standard')
+  const [debateTemplateId, setDebateTemplateId] = useState('paper-only')
   const [rooms, setRooms] = useState<PlannerRoom[]>([])
   const [roomName, setRoomName] = useState('')
   const [roomType, setRoomType] = useState<RoomType>('General')
@@ -166,12 +172,31 @@ export default function EventPlanner() {
     setCreating(true)
     setError('')
     try {
+      const hasCustomForms =
+        personalTemplateId !== 'builtin-personal-standard' || debateTemplateId !== 'paper-only'
+      let forms: EventFormsConfig | undefined
+      if (hasCustomForms) {
+        const personalTpl = templates.find((t) => t.id === personalTemplateId)
+        const debateTpl = templates.find((t) => t.id === debateTemplateId)
+        forms = {
+          ...(personalTpl
+            ? { [PERSONAL_INTERVIEW]: cloneTaskFormConfig({ ...personalTpl.config, enabled: true }) }
+            : {}),
+          ...(debateTemplateId === 'paper-only'
+            ? { [DEBATE_INTERVIEW]: defaultDebateFormConfig(false) }
+            : debateTpl
+              ? { [DEBATE_INTERVIEW]: cloneTaskFormConfig({ ...debateTpl.config, enabled: true }) }
+              : {}),
+        }
+      }
+
       const result = await create({
         name,
         date,
         notes,
         rooms,
         candidates: roster?.rows ?? [],
+        ...(forms ? { forms } : {}),
       })
       navigate(`/admin/event/${result.event.id}/queue`, { replace: true })
     } catch (cause) {
@@ -302,6 +327,68 @@ export default function EventPlanner() {
                   placeholder="Panel arrivals, venue changes, accessibility notes — anything the next coordinator needs."
                 />
               </label>
+
+              <div className="rounded-lg border border-border bg-muted/20 p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wide text-foreground">
+                      Interviewer Form Templates
+                    </h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Choose starting forms for this day (you can further customize them anytime in the Form Studio).
+                    </p>
+                  </div>
+                  <Link
+                    to="/admin/forms"
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    Open Form Studio →
+                  </Link>
+                </div>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-muted-foreground">
+                      Personal Interview Form
+                    </span>
+                    <select
+                      aria-label="Personal Interview Form"
+                      value={personalTemplateId}
+                      onChange={(change) => setPersonalTemplateId(change.target.value)}
+                      className={inputClass}
+                    >
+                      {templates
+                        .filter((tpl) => tpl.task === PERSONAL_INTERVIEW)
+                        .map((tpl) => (
+                          <option key={tpl.id} value={tpl.id}>
+                            {tpl.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-semibold text-muted-foreground">
+                      Debate Interview Form
+                    </span>
+                    <select
+                      aria-label="Debate Interview Form"
+                      value={debateTemplateId}
+                      onChange={(change) => setDebateTemplateId(change.target.value)}
+                      className={inputClass}
+                    >
+                      <option value="paper-only">Paper / Dispatch Checkbox Only (Default)</option>
+                      {templates
+                        .filter((tpl) => tpl.task === DEBATE_INTERVIEW)
+                        .map((tpl) => (
+                          <option key={tpl.id} value={tpl.id}>
+                            {tpl.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
             </div>
           )}
 
