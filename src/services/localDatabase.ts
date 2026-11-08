@@ -975,6 +975,10 @@ export function createLocalDatabase(): DatabaseService {
       await auth.signInWithPassword(email, '')
     },
 
+    async signInWithGoogle(): Promise<void> {
+      await auth.signInWithPassword('idc.debate@gmail.com', '')
+    },
+
     async signOut(): Promise<void> {
       const store = loadStore()
       store.sessionEmail = null

@@ -124,6 +124,8 @@ export interface LedgerRepository {
 export interface AdminUser {
   id: string
   email: string | null
+  fullName?: string | null
+  avatarUrl?: string | null
 }
 
 export interface AuthSession {
@@ -135,6 +137,7 @@ export interface AuthGateway {
   onAuthStateChange: (listener: (session: AuthSession | null) => void) => () => void
   signInWithPassword: (email: string, password: string) => Promise<void>
   signInWithOtp: (email: string, redirectTo: string) => Promise<void>
+  signInWithGoogle?: (redirectTo?: string) => Promise<void>
   signOut: () => Promise<void>
   /** Emails on the allowed_admins list visible to the signed-in user. */
   listAllowedAdmins: () => Promise<string[]>

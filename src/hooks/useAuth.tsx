@@ -34,6 +34,7 @@ export interface AuthContextValue {
   clearAdminError: () => void
   signIn: (email: string, password: string) => Promise<void>
   signInWithMagicLink: (email: string) => Promise<void>
+  signInWithGoogle: (redirectTo?: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -189,6 +190,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [auth],
   )
 
+  const signInWithGoogle = useCallback(
+    async (redirectTo?: string) => {
+      log.info('google oauth sign-in requested')
+      try {
+        if (auth.signInWithGoogle) {
+          await auth.signInWithGoogle(redirectTo ?? `${window.location.origin}/admin`)
+        } else {
+          throw new Error('Google SSO is not supported by this auth adapter.')
+        }
+      } catch (cause) {
+        log.error('google oauth sign-in failed', {
+          message: cause instanceof Error ? cause.message : String(cause),
+        })
+        throw cause
+      }
+    },
+    [auth],
+  )
+
   const signOut = useCallback(async () => {
     log.info('signing out')
     setAdminError('')
@@ -214,9 +234,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearAdminError,
       signIn,
       signInWithMagicLink,
+      signInWithGoogle,
       signOut,
     }),
-    [session, user, isAdmin, loading, adminError, clearAdminError, signIn, signInWithMagicLink, signOut],
+    [
+      session,
+      user,
+      isAdmin,
+      loading,
+      adminError,
+      clearAdminError,
+      signIn,
+      signInWithMagicLink,
+      signInWithGoogle,
+      signOut,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -184,6 +184,12 @@ export default function EventHub() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Link
+              to="/training"
+              className="inline-flex items-center gap-2 rounded-md border border-status-debate/30 bg-status-debate/10 px-4 py-2 text-sm font-semibold text-status-debate transition hover:bg-status-debate/20"
+            >
+              Club Training
+            </Link>
+            <Link
               to="/admin/forms"
               className="inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
             >

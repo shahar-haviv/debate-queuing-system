@@ -404,6 +404,17 @@ export function createSupabaseDatabase(getClient: () => SupabaseClient): Databas
       if (error) raise(error)
     },
 
+    async signInWithGoogle(redirectTo) {
+      const target =
+        redirectTo ??
+        (typeof window !== 'undefined' ? `${window.location.origin}/admin` : undefined)
+      const { error } = await db().auth.signInWithOAuth({
+        provider: 'google',
+        options: target ? { redirectTo: target } : undefined,
+      })
+      if (error) raise(error)
+    },
+
     async signOut() {
       const { error } = await db().auth.signOut()
       if (error) raise(error)

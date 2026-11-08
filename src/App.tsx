@@ -18,6 +18,8 @@ import RoomView from './pages/RoomView'
  * same fast first load it had before the charts existed.
  */
 const Analytics = lazy(() => import('./pages/Analytics'))
+const TrainingHub = lazy(() => import('./training/pages/TrainingHub'))
+const TrainingProjection = lazy(() => import('./training/pages/TrainingProjection'))
 
 export default function App() {
   // Startup gate: no screen may render against an unvalidated environment unless Local Sandbox is enabled.
@@ -28,6 +30,38 @@ export default function App() {
       <Route path="/" element={<Navigate to="/admin" replace />} />
       <Route path="/login" element={<Login />} />
 
+      {/* Club Training & Smart BP Room Draw Module (src/training) */}
+      <Route
+        path="/training"
+        element={
+          <Suspense
+            fallback={
+              <div className="min-h-screen bg-background">
+                <p className="mx-auto max-w-7xl px-4 py-10 text-sm text-muted-foreground">
+                  Loading Training Hub…
+                </p>
+              </div>
+            }
+          >
+            <TrainingHub />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/training/projection"
+        element={
+          <Suspense
+            fallback={
+              <div className="min-h-screen bg-slate-950 text-white">
+                <p className="mx-auto max-w-7xl px-4 py-10 text-sm">Loading Projector…</p>
+              </div>
+            }
+          >
+            <TrainingProjection />
+          </Suspense>
+        }
+      />
+
       {/* Every Back Office route shares one admin gate. */}
       <Route
         element={
@@ -37,6 +71,7 @@ export default function App() {
         }
       >
         <Route path="/admin" element={<EventHub />} />
+        <Route path="/admin/training" element={<Navigate to="/training" replace />} />
         <Route path="/admin/forms" element={<FormStudio />} />
         <Route path="/admin/event/new" element={<EventPlanner />} />
 

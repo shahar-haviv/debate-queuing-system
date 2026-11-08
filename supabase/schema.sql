@@ -1083,6 +1083,186 @@ from (values
 cross join (select id from public.events order by created_at, id limit 1) event
 where not exists (select 1 from public.rooms);
 
+-- ---------------------------------------------------------------------------
+-- 7. Club Training Module & Google SSO Auto-Provisioning
+-- ---------------------------------------------------------------------------
+create table if not exists public.training_members (
+  id                       text        primary key,
+  email                    text        not null unique,
+  full_name_heb            text        not null default '',
+  full_name_eng            text        not null default '',
+  phone_number             text        not null default '',
+  gender                   text        not null default 'Prefer not to disclose',
+  club                     text        not null default 'IDC Debate',
+  start_year               int         not null default extract(year from current_date)::int,
+  student_track            text        not null default '',
+  rank                     text        not null default 'Junior' check (rank in ('Junior', 'Senior')),
+  official_judgement_level text        not null default 'Wing',
+  permissions              text        not null default 'Pending' check (permissions in ('Pending', 'Student', 'Manager', 'Admin')),
+  email_subscribed         boolean     not null default true,
+  avatar_url               text,
+  extra_info               text        not null default '',
+  created_at               timestamptz not null default now()
+);
+
+create table if not exists public.training_sessions (
+  id             uuid        primary key default gen_random_uuid(),
+  title          text        not null,
+  date           date        not null,
+  time           text        not null default '18:30',
+  event_type     text        not null default 'Practice' check (event_type in ('Practice', 'Lesson', 'Tournament Prep')),
+  status         text        not null default 'Check-In' check (status in ('Upcoming', 'Check-In', 'Draw Published', 'Completed')),
+  motion         text        not null default '',
+  info_slide     text        not null default '',
+  motion_visible boolean     not null default true,
+  notes          text        not null default '',
+  draw           jsonb       not null default '{"rooms":[],"waitlist":[],"trash":[],"strategy":"balanced-history"}'::jsonb,
+  created_at     timestamptz not null default now()
+);
+
+create table if not exists public.training_registrations (
+  id                  uuid        primary key default gen_random_uuid(),
+  session_id          uuid        not null references public.training_sessions (id) on delete cascade,
+  member_id           text        not null references public.training_members (id) on delete cascade,
+  status              text        not null default 'Registered' check (status in ('Registered', 'CheckedIn', 'Cancelled')),
+  role_preference     text        not null default 'Debate' check (role_preference in ('Debate', 'Judge', 'No preference')),
+  language_preference text        not null default 'Hebrew' check (language_preference in ('Hebrew', 'English', 'No preference')),
+  partner_id          text,
+  notes               text        not null default '',
+  checked_in_at       timestamptz,
+  created_at          timestamptz not null default now(),
+  unique (session_id, member_id)
+);
+
+create table if not exists public.training_results (
+  id                   uuid        primary key default gen_random_uuid(),
+  session_id           uuid        references public.training_sessions (id) on delete set null,
+  session_date         date        not null default current_date,
+  room_name            text        not null default '',
+  member_id            text        not null references public.training_members (id) on delete cascade,
+  partner_id           text,
+  chair_id             text,
+  position             text        not null check (position in ('Opening Government', 'Opening Opposition', 'Closing Government', 'Closing Opposition', 'Chair', 'Panel')),
+  team_rank            smallint    check (team_rank is null or (team_rank >= 1 and team_rank <= 4)),
+  speaker_points       numeric(4,1) check (speaker_points is null or (speaker_points >= 50 and speaker_points <= 100)),
+  motion               text        not null default '',
+  info_slide           text        not null default '',
+  positive_feedback    text        not null default '',
+  improvement_feedback text        not null default '',
+  created_at           timestamptz not null default now()
+);
+
+create table if not exists public.training_motions (
+  id         uuid        primary key default gen_random_uuid(),
+  category   text        not null default 'General',
+  motion     text        not null,
+  info_slide text        not null default '',
+  used_on    date,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.training_announcements (
+  id          uuid        primary key default gen_random_uuid(),
+  title       text        not null,
+  body        text        not null,
+  author_name text        not null default 'IDC Debate Board',
+  pinned      boolean     not null default false,
+  created_at  timestamptz not null default now()
+);
+
+-- Automatically provision or update a training_members profile when a user
+-- signs in via Google SSO (or email/magic link) in Supabase Auth.
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  display_name text;
+  is_allowed_admin boolean;
+begin
+  if new.email is null then
+    return new;
+  end if;
+
+  display_name := coalesce(
+    new.raw_user_meta_data->>'full_name',
+    new.raw_user_meta_data->>'name',
+    split_part(new.email, '@', 1)
+  );
+
+  select exists (
+    select 1 from public.allowed_admins where lower(email) = lower(new.email)
+  ) into is_allowed_admin;
+
+  insert into public.training_members (
+    id, email, full_name_eng, full_name_heb, avatar_url, permissions, rank
+  )
+  values (
+    new.id::text,
+    lower(new.email),
+    display_name,
+    display_name,
+    new.raw_user_meta_data->>'avatar_url',
+    case when is_allowed_admin then 'Admin' else 'Student' end,
+    case when is_allowed_admin then 'Senior' else 'Junior' end
+  )
+  on conflict (email) do update
+    set avatar_url = coalesce(excluded.avatar_url, public.training_members.avatar_url),
+        permissions = case
+          when is_allowed_admin then 'Admin'
+          else public.training_members.permissions
+        end;
+
+  return new;
+exception when others then
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert or update on auth.users
+  for each row execute function public.handle_new_auth_user();
+
+alter table public.training_members enable row level security;
+alter table public.training_sessions enable row level security;
+alter table public.training_registrations enable row level security;
+alter table public.training_results enable row level security;
+alter table public.training_motions enable row level security;
+alter table public.training_announcements enable row level security;
+
+grant select, insert, update, delete on public.training_members to authenticated;
+grant select, insert, update, delete on public.training_sessions to authenticated;
+grant select, insert, update, delete on public.training_registrations to authenticated;
+grant select, insert, update, delete on public.training_results to authenticated;
+grant select, insert, update, delete on public.training_motions to authenticated;
+grant select, insert, update, delete on public.training_announcements to authenticated;
+
+drop policy if exists "Authenticated members access training_members" on public.training_members;
+create policy "Authenticated members access training_members"
+  on public.training_members for all to authenticated using (true) with check (true);
+
+drop policy if exists "Authenticated members access training_sessions" on public.training_sessions;
+create policy "Authenticated members access training_sessions"
+  on public.training_sessions for all to authenticated using (true) with check (true);
+
+drop policy if exists "Authenticated members access training_registrations" on public.training_registrations;
+create policy "Authenticated members access training_registrations"
+  on public.training_registrations for all to authenticated using (true) with check (true);
+
+drop policy if exists "Authenticated members access training_results" on public.training_results;
+create policy "Authenticated members access training_results"
+  on public.training_results for all to authenticated using (true) with check (true);
+
+drop policy if exists "Authenticated members access training_motions" on public.training_motions;
+create policy "Authenticated members access training_motions"
+  on public.training_motions for all to authenticated using (true) with check (true);
+
+drop policy if exists "Authenticated members access training_announcements" on public.training_announcements;
+create policy "Authenticated members access training_announcements"
+  on public.training_announcements for all to authenticated using (true) with check (true);
+
 -- PostgREST caches tables, columns and relationships. Tell it to pick up the
 -- new events table and every event_id column immediately after `db:push`.
 notify pgrst, 'reload schema';
