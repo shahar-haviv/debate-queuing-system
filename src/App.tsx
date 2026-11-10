@@ -20,7 +20,6 @@ import RoomView from './pages/RoomView'
  */
 const Analytics = lazy(() => import('./pages/Analytics'))
 const TrainingHub = lazy(() => import('./training/pages/TrainingHub'))
-const TrainingProjection = lazy(() => import('./training/pages/TrainingProjection'))
 
 export default function App() {
   // Startup gate: no screen may render against an unvalidated environment unless Local Sandbox is enabled.
@@ -37,27 +36,13 @@ export default function App() {
           <Suspense
             fallback={
               <div className="min-h-screen bg-background">
-                <p className="mx-auto max-w-7xl px-4 py-10 text-sm text-muted-foreground">
-                  Loading Training Hub…
+                <p className="mx-auto max-w-6xl px-4 py-10 text-sm text-muted-foreground">
+                  Loading Training…
                 </p>
               </div>
             }
           >
             <TrainingHub />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/training/projection"
-        element={
-          <Suspense
-            fallback={
-              <div className="min-h-screen bg-slate-950 text-white">
-                <p className="mx-auto max-w-7xl px-4 py-10 text-sm">Loading Projector…</p>
-              </div>
-            }
-          >
-            <TrainingProjection />
           </Suspense>
         }
       />

@@ -86,9 +86,6 @@ export interface TrainingSession {
   time: string
   event_type: TrainingEventType
   status: TrainingSessionStatus
-  motion: string
-  info_slide: string
-  motion_visible: boolean
   notes: string
   draw: TrainingDrawState
   created_at: string
@@ -105,28 +102,8 @@ export interface TrainingResult {
   position: RoomRole
   team_rank: 1 | 2 | 3 | 4 | null
   speaker_points: number | null
-  motion: string
-  info_slide: string
   positive_feedback: string
   improvement_feedback: string
-  created_at: string
-}
-
-export interface TrainingMotion {
-  id: string
-  category: string
-  motion: string
-  info_slide: string
-  used_on: string | null
-  created_at: string
-}
-
-export interface TrainingAnnouncement {
-  id: string
-  title: string
-  body: string
-  author_name: string
-  pinned: boolean
   created_at: string
 }
 

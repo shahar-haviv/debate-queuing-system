@@ -1,10 +1,6 @@
 /**
  * Persistence and real-time sync service for the Club Training module
  * (`src/training/services/trainingStorage.ts`).
- *
- * Works seamlessly in both Local Sandbox mode (`localStorage` + `BroadcastChannel`)
- * and Supabase mode (falling back gracefully if the training tables have not yet
- * been pushed via `bun run db:push`).
  */
 import { todayIso } from '../../domain/events'
 import { generateSmartRoomDraw } from '../domain/pairingEngine'
@@ -14,16 +10,14 @@ import type {
   PairingOptions,
   RegistrationStatus,
   RolePreference,
-  TrainingAnnouncement,
   TrainingDrawState,
   TrainingMember,
-  TrainingMotion,
   TrainingRegistration,
   TrainingResult,
   TrainingSession,
 } from '../types'
 
-const STORAGE_KEY = 'cq:trainingStore:v1'
+const STORAGE_KEY = 'cq:trainingStore:v2'
 const CHANNEL_NAME = 'cq:training-realtime'
 
 export interface TrainingStoreData {
@@ -31,8 +25,6 @@ export interface TrainingStoreData {
   sessions: TrainingSession[]
   registrations: TrainingRegistration[]
   results: TrainingResult[]
-  motions: TrainingMotion[]
-  announcements: TrainingAnnouncement[]
   activePersonaId: string
 }
 
@@ -73,8 +65,8 @@ function createSeedTrainingStore(): TrainingStoreData {
     {
       id: 'mem-admin',
       email: 'idc.debate@gmail.com',
-      full_name_heb: 'שחר חביב (הנהלת המועדון)',
-      full_name_eng: 'Shahar Haviv (IDC Admin)',
+      full_name_heb: 'שחר חביב',
+      full_name_eng: 'Shahar Haviv',
       phone_number: '050-1110000',
       gender: 'Male',
       club: 'IDC Debate',
@@ -84,7 +76,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'CA',
       permissions: 'Admin',
       email_subscribed: true,
-      extra_info: 'Chief Adjudicator & Club Admin',
+      extra_info: 'Club Admin',
       created_at: nowIso,
     },
     {
@@ -101,7 +93,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Chair',
       permissions: 'Manager',
       email_subscribed: true,
-      extra_info: 'VP Training & Senior Chair',
+      extra_info: 'VP Training',
       created_at: nowIso,
     },
     {
@@ -118,7 +110,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Chair',
       permissions: 'Manager',
       email_subscribed: true,
-      extra_info: 'Senior Debater & Chair',
+      extra_info: 'Senior Chair',
       created_at: nowIso,
     },
     {
@@ -135,7 +127,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Chair',
       permissions: 'Student',
       email_subscribed: true,
-      extra_info: 'EUDC Quarterfinalist',
+      extra_info: '',
       created_at: nowIso,
     },
     {
@@ -169,7 +161,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Wing',
       permissions: 'Student',
       email_subscribed: true,
-      extra_info: 'שנה א׳ — מחזור 2026',
+      extra_info: 'Year 1',
       created_at: nowIso,
     },
     {
@@ -186,7 +178,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Wing',
       permissions: 'Student',
       email_subscribed: true,
-      extra_info: 'שנה א׳ — מחזור 2026',
+      extra_info: 'Year 1',
       created_at: nowIso,
     },
     {
@@ -203,7 +195,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Wing',
       permissions: 'Student',
       email_subscribed: true,
-      extra_info: 'שנה א׳ — מחזור 2026',
+      extra_info: 'Year 1',
       created_at: nowIso,
     },
     {
@@ -220,7 +212,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Wing',
       permissions: 'Student',
       email_subscribed: true,
-      extra_info: 'שנה א׳ — מחזור 2026',
+      extra_info: 'Year 1',
       created_at: nowIso,
     },
     {
@@ -237,7 +229,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Wing',
       permissions: 'Student',
       email_subscribed: true,
-      extra_info: 'שנה א׳ — מחזור 2026',
+      extra_info: 'Year 1',
       created_at: nowIso,
     },
     {
@@ -254,7 +246,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Wing',
       permissions: 'Student',
       email_subscribed: true,
-      extra_info: 'שנה א׳ — מחזור 2026',
+      extra_info: 'Year 1',
       created_at: nowIso,
     },
     {
@@ -271,7 +263,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       official_judgement_level: 'Wing',
       permissions: 'Pending',
       email_subscribed: true,
-      extra_info: 'Signed in via Google SSO — awaiting board approval',
+      extra_info: 'Joined via Google SSO',
       created_at: nowIso,
     },
   ]
@@ -288,10 +280,8 @@ function createSeedTrainingStore(): TrainingStoreData {
       position: 'Opening Government',
       team_rank: 1,
       speaker_points: 77,
-      motion: 'ב״ז יאסור על חברות טכנולוגיה להשתמש באלגוריתמים ממכרים לבני נוער',
-      info_slide: '',
-      positive_feedback: 'פתיחה מבנית מעולה, הגדרת מנגנון ברורה של הפגיעה בקשב.',
-      improvement_feedback: 'להקדיש יותר זמן להשוואת החלופה של רגולציה עצמית של ההורים.',
+      positive_feedback: 'Strong opening mechanism and structure.',
+      improvement_feedback: 'Engage earlier with the counter-model.',
       created_at: '2026-10-26T20:30:00Z',
     },
     {
@@ -305,10 +295,8 @@ function createSeedTrainingStore(): TrainingStoreData {
       position: 'Opening Government',
       team_rank: 1,
       speaker_points: 76.5,
-      motion: 'ב״ז יאסור על חברות טכנולוגיה להשתמש באלגוריתמים ממכרים לבני נוער',
-      info_slide: '',
-      positive_feedback: 'ריבטל מדויק לטענת חופש העיסוק של האופוזיציה הפותחת.',
-      improvement_feedback: 'לחדד את האימפקט הפסיכולוגי בטווח הארוך.',
+      positive_feedback: 'Direct rebuttal to OO.',
+      improvement_feedback: 'Sharpen long-term impact weighing.',
       created_at: '2026-10-26T20:30:00Z',
     },
     {
@@ -322,10 +310,8 @@ function createSeedTrainingStore(): TrainingStoreData {
       position: 'Opening Opposition',
       team_rank: 2,
       speaker_points: 75.5,
-      motion: 'ב״ז יאסור על חברות טכנולוגיה להשתמש באלגוריתמים ממכרים לבני נוער',
-      info_slide: '',
-      positive_feedback: 'ניתוח מצוין של תמריצי השוק השחור והקושי באכיפה.',
-      improvement_feedback: 'להיכנס מוקדם יותר מול הטיעון העקרוני של ממשלה פותחת.',
+      positive_feedback: 'Clear incentive analysis.',
+      improvement_feedback: 'Take a POI from Closing.',
       created_at: '2026-10-26T20:30:00Z',
     },
     {
@@ -339,10 +325,8 @@ function createSeedTrainingStore(): TrainingStoreData {
       position: 'Opening Opposition',
       team_rank: 2,
       speaker_points: 75,
-      motion: 'ב״ז יאסור על חברות טכנולוגיה להשתמש באלגוריתמים ממכרים לבני נוער',
-      info_slide: '',
-      positive_feedback: 'בניית קייס קוהרנטית ומענה טוב ל-POI.',
-      improvement_feedback: 'לשקלל את הנזק מול התועלת של נגישות מידע.',
+      positive_feedback: 'Coherent case split.',
+      improvement_feedback: 'Weigh principle vs practical harm.',
       created_at: '2026-10-26T20:30:00Z',
     },
     {
@@ -356,10 +340,8 @@ function createSeedTrainingStore(): TrainingStoreData {
       position: 'Closing Government',
       team_rank: 3,
       speaker_points: 74,
-      motion: 'ב״ז יאסור על חברות טכנולוגיה להשתמש באלגוריתמים ממכרים לבני נוער',
-      info_slide: '',
-      positive_feedback: 'הרחבה מעניינת על פגיעה בדמוקרטיה וקיטוב.',
-      improvement_feedback: 'לוודא שההרחבה מובחנת בבירור ממה שעלה ב-OG.',
+      positive_feedback: 'Good extension angle.',
+      improvement_feedback: 'Differentiate extension from OG earlier.',
       created_at: '2026-10-26T20:30:00Z',
     },
     {
@@ -373,10 +355,8 @@ function createSeedTrainingStore(): TrainingStoreData {
       position: 'Closing Government',
       team_rank: 3,
       speaker_points: 74.5,
-      motion: 'ב״ז יאסור על חברות טכנולוגיה להשתמש באלגוריתמים ממכרים לבני נוער',
-      info_slide: '',
-      positive_feedback: 'סיכום מסודר מאוד לפי נקודות התנגשות.',
-      improvement_feedback: 'לתעדף את ההשוואה מול OO לפני ההשוואה מול OG.',
+      positive_feedback: 'Structured whip speech by clash points.',
+      improvement_feedback: 'Prioritize OO comparison before OG.',
       created_at: '2026-10-26T20:30:00Z',
     },
     {
@@ -390,9 +370,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       position: 'Closing Opposition',
       team_rank: 4,
       speaker_points: 78,
-      motion: 'ב״ז יאסור על חברות טכנולוגיה להשתמש באלגוריתמים ממכרים לבני נוער',
-      info_slide: '',
-      positive_feedback: 'הדגמה מצוינת של פריימינג וניתוח שחקנים לשנה א׳.',
+      positive_feedback: 'Great framing demonstration.',
       improvement_feedback: '',
       created_at: '2026-10-26T20:30:00Z',
     },
@@ -407,8 +385,6 @@ function createSeedTrainingStore(): TrainingStoreData {
       position: 'Chair',
       team_rank: null,
       speaker_points: null,
-      motion: 'ב״ז יאסור על חברות טכנולוגיה להשתמש באלגוריתמים ממכרים לבני נוער',
-      info_slide: '',
       positive_feedback: '',
       improvement_feedback: '',
       created_at: '2026-10-26T20:30:00Z',
@@ -425,7 +401,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       role_preference: 'Judge',
       language_preference: 'Hebrew',
       partner_id: null,
-      notes: 'Chairing Room 1',
+      notes: '',
       checked_in_at: nowIso,
       created_at: nowIso,
     },
@@ -437,7 +413,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       role_preference: 'Judge',
       language_preference: 'Hebrew',
       partner_id: null,
-      notes: 'Available to Chair or Wing',
+      notes: '',
       checked_in_at: nowIso,
       created_at: nowIso,
     },
@@ -449,7 +425,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       role_preference: 'Debate',
       language_preference: 'Hebrew',
       partner_id: null,
-      notes: 'Happy to Pro-Am with a Junior',
+      notes: '',
       checked_in_at: nowIso,
       created_at: nowIso,
     },
@@ -473,7 +449,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       role_preference: 'Debate',
       language_preference: 'Hebrew',
       partner_id: 'mem-jr-3',
-      notes: 'Requested Amit Friedman as partner',
+      notes: '',
       checked_in_at: nowIso,
       created_at: nowIso,
     },
@@ -497,7 +473,7 @@ function createSeedTrainingStore(): TrainingStoreData {
       role_preference: 'Debate',
       language_preference: 'Hebrew',
       partner_id: 'mem-jr-1',
-      notes: 'Requested Tomer Segev as partner',
+      notes: '',
       checked_in_at: nowIso,
       created_at: nowIso,
     },
@@ -533,121 +509,109 @@ function createSeedTrainingStore(): TrainingStoreData {
       role_preference: 'Debate',
       language_preference: 'Hebrew',
       partner_id: null,
-      notes: 'On the way — arriving 18:35',
+      notes: '',
+      checked_in_at: null,
+      created_at: nowIso,
+    },
+    // Registrations for the second planned training this week
+    {
+      id: 'reg-11',
+      session_id: 'sess-upcoming-2',
+      member_id: 'mem-sr-1',
+      status: 'Registered',
+      role_preference: 'Judge',
+      language_preference: 'English',
+      partner_id: null,
+      notes: '',
+      checked_in_at: null,
+      created_at: nowIso,
+    },
+    {
+      id: 'reg-12',
+      session_id: 'sess-upcoming-2',
+      member_id: 'mem-jr-1',
+      status: 'Registered',
+      role_preference: 'Debate',
+      language_preference: 'English',
+      partner_id: null,
+      notes: '',
+      checked_in_at: null,
+      created_at: nowIso,
+    },
+    {
+      id: 'reg-13',
+      session_id: 'sess-upcoming-2',
+      member_id: 'mem-jr-2',
+      status: 'Registered',
+      role_preference: 'Debate',
+      language_preference: 'English',
+      partner_id: null,
+      notes: '',
+      checked_in_at: null,
+      created_at: nowIso,
+    },
+    {
+      id: 'reg-14',
+      session_id: 'sess-upcoming-2',
+      member_id: 'mem-jr-4',
+      status: 'Registered',
+      role_preference: 'Debate',
+      language_preference: 'English',
+      partner_id: null,
+      notes: '',
       checked_in_at: null,
       created_at: nowIso,
     },
   ]
 
-  const initialDraw = generateSmartRoomDraw(members, registrations, results)
+  const initialDraw = generateSmartRoomDraw(
+    members,
+    registrations.filter((r) => r.session_id === activeSessionId),
+    results,
+  )
 
   const sessions: TrainingSession[] = [
     {
       id: activeSessionId,
-      title: 'אימון מועדון מרכזי — סדנת הרחבות ובית סוגר (BP Practice)',
+      title: 'Monday Club Practice',
       date: today,
       time: '18:30',
       event_type: 'Practice',
       status: 'Check-In',
-      motion: 'ב״ז יחייב חברות בינה מלאכותית לשלם תמלוגים ליוצרים אנושיים שעל יצירותיהם אומנו המודלים',
-      info_slide:
-        'מודלים של בינה מלאכותית יוצרת (Generative AI) מאומנים על מיליארדי טקסטים, תמונות וקטעי קוד מהאינטרנט ללא הסכמה מפורשת או פיצוי ליוצרים המקוריים.',
-      motion_visible: true,
-      notes: '18:30 התכנסות וצ׳ק-אין בבניין אדלסון (A206) • 18:45 פרסום הגרלה ומושן • 19:00 תחילת דיבייט.',
+      notes: 'Room A206',
       draw: initialDraw,
       created_at: nowIso,
     },
     {
       id: 'sess-upcoming-2',
-      title: 'אימון חמישי באנגלית — International BP Prep',
-      date: '2026-11-12',
-      time: '18:00',
-      event_type: 'Tournament Prep',
-      status: 'Upcoming',
-      motion: 'THBT developing nations should prioritize sovereign state-owned green energy over foreign private green investment',
-      info_slide: '',
-      motion_visible: false,
-      notes: 'English practice round ahead of the Winter Pre-EUDC tournament.',
-      draw: {
-        rooms: [],
-        waitlist: [],
-        trash: [],
-        strategy: 'skill-matched',
-      },
-      created_at: nowIso,
-    },
-    {
-      id: 'sess-past-1',
-      title: 'אימון פתיחת סמסטר — יסודות המבנה הלוגי וריבטל',
-      date: '2026-10-26',
-      time: '18:30',
+      title: 'Wednesday English Practice',
+      date: '2026-11-11',
+      time: '19:00',
       event_type: 'Practice',
-      status: 'Completed',
-      motion: 'ב״ז יאסור על חברות טכנולוגיה להשתמש באלגוריתמים ממכרים לבני נוער',
-      info_slide: '',
-      motion_visible: true,
-      notes: 'אימון פתיחה למחזור 2026.',
+      status: 'Upcoming',
+      notes: 'Room A206',
       draw: {
         rooms: [],
         waitlist: [],
         trash: [],
         strategy: 'balanced-history',
       },
-      created_at: '2026-10-26T18:00:00Z',
-    },
-  ]
-
-  const motions: TrainingMotion[] = [
-    {
-      id: 'mot-1',
-      category: 'טכנולוגיה ורגולציה',
-      motion: 'ב״ז יחייב חברות בינה מלאכותית לשלם תמלוגים ליוצרים אנושיים שעל יצירותיהם אומנו המודלים',
-      info_slide:
-        'מודלים של בינה מלאכותית יוצרת (Generative AI) מאומנים על מיליארדי טקסטים, תמונות וקטעי קוד מהאינטרנט ללא הסכמה מפורשת או פיצוי ליוצרים המקוריים.',
-      used_on: today,
       created_at: nowIso,
     },
     {
-      id: 'mot-2',
-      category: 'כלכלה וחברה',
-      motion: 'ב״ז יבטל את מוסד הירושה מעל תקרה של 5 מיליון ש״ח ויעביר את העודף לקרן הזדמנויות לאומית לצעירים',
-      info_slide: '',
-      used_on: null,
-      created_at: nowIso,
-    },
-    {
-      id: 'mot-3',
-      category: 'יחסים בינלאומיים',
-      motion: 'THBT developing nations should prioritize sovereign state-owned green energy over foreign private green investment',
-      info_slide: '',
-      used_on: null,
-      created_at: nowIso,
-    },
-    {
-      id: 'mot-4',
-      category: 'משפט ודמוקרטיה',
-      motion: 'ב״ז יחליף ועדות מינוי שופטים בהגרלה אנונימית מתוך מאגר משפטנים שעמדו בבחינת כשירות אובייקטיבית',
-      info_slide: '',
-      used_on: null,
-      created_at: nowIso,
-    },
-  ]
-
-  const announcements: TrainingAnnouncement[] = [
-    {
-      id: 'ann-1',
-      title: 'ברוכים הבאים למערכת האימונים החדשה של מועדון הדיבייט!',
-      body: 'החל מהשבוע, ההרשמה לאימונים, הצ׳ק-אין בכניסה לחדר, בחירת העדפה (דיבייטר / שופט / בן זוג) והגרלת החדרים החכמה מתבצעים כאן. שימו לב לסמן הגעה (Check-In) ברגע שאתם מגיעים לקמפוס.',
-      author_name: 'שחר חביב ורומי כהן',
-      pinned: true,
-      created_at: nowIso,
-    },
-    {
-      id: 'ann-2',
-      title: 'הרשמה לטורניר שנות א׳ הארצי נפתחה',
-      body: 'מתמודדי שנה א׳ (Juniors) מוזמנים להירשם לאימוני ההכנה בימי שני וחמישי. האלגוריתם החדש מוודא שכל ג׳וניור מתנסה בכל 4 העמדות (OG, OO, CG, CO) ומקבל משוב משופטים מגוונים.',
-      author_name: 'הנהלת המועדון',
-      pinned: false,
+      id: 'sess-upcoming-3',
+      title: 'Thursday Juniors Workshop',
+      date: '2026-11-12',
+      time: '18:00',
+      event_type: 'Lesson',
+      status: 'Upcoming',
+      notes: 'Room A208',
+      draw: {
+        rooms: [],
+        waitlist: [],
+        trash: [],
+        strategy: 'pro-am',
+      },
       created_at: nowIso,
     },
   ]
@@ -657,8 +621,6 @@ function createSeedTrainingStore(): TrainingStoreData {
     sessions,
     registrations,
     results,
-    motions,
-    announcements,
     activePersonaId: 'mem-admin',
   }
 }
@@ -700,58 +662,6 @@ export function resetTrainingStore(): TrainingStoreData {
 export const trainingService = {
   getStore(): TrainingStoreData {
     return loadTrainingStore()
-  },
-
-  setActivePersona(memberId: string): void {
-    const store = loadTrainingStore()
-    if (store.members.some((m) => m.id === memberId)) {
-      store.activePersonaId = memberId
-      saveTrainingStore(store)
-    }
-  },
-
-  /**
-   * Simulate or sync a Google SSO login: if the email is already in `members`,
-   * switches to that member; otherwise creates a new `Junior` member (or `Admin`
-   * for `idc.debate@gmail.com`) and returns it.
-   */
-  signInOrRegisterGoogleMember(input: {
-    email: string
-    fullNameHeb?: string
-    fullNameEng?: string
-    studentTrack?: string
-  }): TrainingMember {
-    const store = loadTrainingStore()
-    const cleanEmail = input.email.trim().toLowerCase()
-    const existing = store.members.find((m) => m.email.toLowerCase() === cleanEmail)
-    if (existing) {
-      store.activePersonaId = existing.id
-      saveTrainingStore(store)
-      return existing
-    }
-
-    const isAdminEmail = cleanEmail === 'idc.debate@gmail.com'
-    const created: TrainingMember = {
-      id: `mem-${Date.now()}`,
-      email: cleanEmail,
-      full_name_heb: input.fullNameHeb?.trim() || input.fullNameEng?.trim() || cleanEmail.split('@')[0],
-      full_name_eng: input.fullNameEng?.trim() || input.fullNameHeb?.trim() || cleanEmail.split('@')[0],
-      phone_number: '',
-      gender: 'Prefer not to disclose',
-      club: 'IDC Debate',
-      start_year: new Date().getFullYear(),
-      student_track: input.studentTrack?.trim() || '',
-      rank: isAdminEmail ? 'Senior' : 'Junior',
-      official_judgement_level: isAdminEmail ? 'CA' : 'Wing',
-      permissions: isAdminEmail ? 'Admin' : 'Student',
-      email_subscribed: true,
-      extra_info: 'Joined via Google SSO',
-      created_at: new Date().toISOString(),
-    }
-    store.members.push(created)
-    store.activePersonaId = created.id
-    saveTrainingStore(store)
-    return created
   },
 
   upsertRegistration(input: {
@@ -840,21 +750,18 @@ export const trainingService = {
     date: string
     time: string
     event_type: TrainingSession['event_type']
-    motion?: string
-    info_slide?: string
     notes?: string
+    expectedMemberIds?: string[]
   }): TrainingSession {
     const store = loadTrainingStore()
+    const nowIso = new Date().toISOString()
     const created: TrainingSession = {
       id: `sess-${Date.now()}`,
       title: input.title.trim(),
       date: input.date,
       time: input.time || '18:30',
       event_type: input.event_type,
-      status: 'Check-In',
-      motion: input.motion?.trim() ?? '',
-      info_slide: input.info_slide?.trim() ?? '',
-      motion_visible: true,
+      status: 'Upcoming',
       notes: input.notes?.trim() ?? '',
       draw: {
         rooms: [],
@@ -862,9 +769,29 @@ export const trainingService = {
         trash: [],
         strategy: 'balanced-history',
       },
-      created_at: new Date().toISOString(),
+      created_at: nowIso,
     }
     store.sessions.unshift(created)
+
+    if (input.expectedMemberIds && input.expectedMemberIds.length > 0) {
+      for (const memberId of input.expectedMemberIds) {
+        const member = store.members.find((m) => m.id === memberId)
+        if (!member) continue
+        store.registrations.push({
+          id: `reg-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+          session_id: created.id,
+          member_id: member.id,
+          status: 'Registered',
+          role_preference: member.official_judgement_level === 'Chair' ? 'Judge' : 'Debate',
+          language_preference: 'Hebrew',
+          partner_id: null,
+          notes: '',
+          checked_in_at: null,
+          created_at: nowIso,
+        })
+      }
+    }
+
     saveTrainingStore(store)
     return created
   },
@@ -874,7 +801,7 @@ export const trainingService = {
     patch: Partial<
       Pick<
         TrainingSession,
-        'title' | 'date' | 'time' | 'event_type' | 'status' | 'motion' | 'info_slide' | 'motion_visible' | 'notes' | 'draw'
+        'title' | 'date' | 'time' | 'event_type' | 'status' | 'notes' | 'draw'
       >
     >,
   ): TrainingSession {
@@ -947,53 +874,5 @@ export const trainingService = {
 
   approvePendingMember(memberId: string, permission: MemberPermission = 'Student'): TrainingMember {
     return trainingService.updateMember(memberId, { permissions: permission })
-  },
-
-  promoteAllJuniorsToSeniors(): number {
-    const store = loadTrainingStore()
-    let count = 0
-    for (const m of store.members) {
-      if (m.rank === 'Junior' && m.permissions !== 'Pending') {
-        m.rank = 'Senior'
-        count++
-      }
-    }
-    saveTrainingStore(store)
-    return count
-  },
-
-  addMotion(input: { category: string; motion: string; info_slide?: string }): TrainingMotion {
-    const store = loadTrainingStore()
-    const created: TrainingMotion = {
-      id: `mot-${Date.now()}`,
-      category: input.category.trim() || 'כללי',
-      motion: input.motion.trim(),
-      info_slide: input.info_slide?.trim() ?? '',
-      used_on: null,
-      created_at: new Date().toISOString(),
-    }
-    store.motions.unshift(created)
-    saveTrainingStore(store)
-    return created
-  },
-
-  addAnnouncement(input: {
-    title: string
-    body: string
-    author_name: string
-    pinned?: boolean
-  }): TrainingAnnouncement {
-    const store = loadTrainingStore()
-    const created: TrainingAnnouncement = {
-      id: `ann-${Date.now()}`,
-      title: input.title.trim(),
-      body: input.body.trim(),
-      author_name: input.author_name.trim() || 'הנהלת המועדון',
-      pinned: Boolean(input.pinned),
-      created_at: new Date().toISOString(),
-    }
-    store.announcements.unshift(created)
-    saveTrainingStore(store)
-    return created
   },
 }

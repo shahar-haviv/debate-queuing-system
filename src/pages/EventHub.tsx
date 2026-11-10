@@ -6,13 +6,11 @@
  * board only starts fetching once an admin opens a specific event.
  */
 import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import type { EventStatus, EventSummary, QueueEvent } from '../core/types'
-import { useAuth } from '../hooks/useAuth'
 import { useEvents } from '../hooks/useEvents'
 import { formatEventDate } from '../domain/events'
-import BrandMark from '../components/ui/BrandMark'
-import PaletteSwitcher from '../components/ui/PaletteSwitcher'
+import AppHeader from '../components/ui/AppHeader'
 import EventSettingsModal from '../components/features/EventSettingsModal'
 
 type TabKey = 'upcoming' | 'active' | 'past'
@@ -142,8 +140,6 @@ function EventCard({
 }
 
 export default function EventHub() {
-  const navigate = useNavigate()
-  const { user, signOut } = useAuth()
   const { events, loading, error, reload, update } = useEvents()
   const [tab, setTab] = useState<TabKey>('upcoming')
   const [editing, setEditing] = useState<QueueEvent | null>(null)
@@ -163,66 +159,38 @@ export default function EventHub() {
   const current = grouped[tab]
   const activeTab = TABS.find((entry) => entry.key === tab) ?? TABS[0]
 
-  const handleSignOut = async () => {
-    await signOut()
-    navigate('/login', { replace: true })
-  }
-
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4">
-          <div className="flex items-center gap-3">
-            <BrandMark className="size-11" />
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">Back Office</h1>
-              <p className="text-sm text-muted-foreground">
-                Plan, run and review every interview day
-                {!loading && ` · ${events.length} event${events.length === 1 ? '' : 's'}`}
-              </p>
-            </div>
+      <AppHeader />
+
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-extrabold tracking-tight text-primary">
+              Screening Queue
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              Annual candidate interview days
+              {!loading && ` · ${events.length} event${events.length === 1 ? '' : 's'}`}
+            </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <PaletteSwitcher />
-            <Link
-              to="/"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-3.5 py-2 text-xs font-bold text-primary shadow-2xs transition hover:bg-secondary/40"
-            >
-              ← Main Office
-            </Link>
-            <Link
-              to="/training"
-              className="inline-flex items-center gap-2 rounded-full border border-status-debate/30 bg-status-debate/10 px-4 py-2 text-xs font-bold text-primary transition hover:bg-status-debate/20"
-            >
-              Club Training
-            </Link>
+          <div className="flex items-center gap-2">
             <Link
               to="/admin/forms"
-              className="inline-flex items-center gap-2 rounded-full border border-input bg-card px-4 py-2 text-xs font-semibold text-foreground transition hover:bg-muted"
+              className="inline-flex h-9 items-center rounded-full border border-input bg-white px-3.5 text-xs font-semibold text-foreground transition hover:bg-muted"
             >
               Form Studio
             </Link>
             <Link
               to="/admin/event/new"
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition hover:brightness-110"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-xs font-bold text-primary-foreground transition hover:opacity-95"
             >
               <PlusIcon />
               New Event
             </Link>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              title={user?.email ?? 'Sign out'}
-              className="rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            >
-              Sign out
-            </button>
           </div>
         </div>
-      </header>
-
-      <main className="mx-auto max-w-7xl px-4 py-6">
         {error && (
           <div
             role="alert"

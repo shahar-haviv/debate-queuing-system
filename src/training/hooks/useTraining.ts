@@ -27,14 +27,6 @@ export function useTraining() {
     [store.members],
   )
 
-  const activeMember = useMemo(
-    () =>
-      memberById.get(store.activePersonaId) ??
-      store.members.find((m) => m.email === 'idc.debate@gmail.com') ??
-      store.members[0],
-    [memberById, store.activePersonaId, store.members],
-  )
-
   const memberStats = useMemo(
     () => computeAllMemberStats(store.members, store.results),
     [store.members, store.results],
@@ -45,20 +37,13 @@ export function useTraining() {
     [store.members, store.results],
   )
 
-  const isManagerOrAdmin =
-    activeMember?.permissions === 'Admin' || activeMember?.permissions === 'Manager'
-
   return {
     store,
     members: store.members,
     sessions: store.sessions,
     registrations: store.registrations,
     results: store.results,
-    motions: store.motions,
-    announcements: store.announcements,
     memberById,
-    activeMember,
-    isManagerOrAdmin,
     memberStats,
     chairJuniorMatrix,
     refresh,

@@ -134,8 +134,8 @@ describe('Training Domain — Smart Pairing & Knowledge Matrix Engine', () => {
   })
 })
 
-describe('TrainingHub — Club Training & Smart BP Room Draw UI', { timeout: 15000 }, () => {
-  it('renders Practice Check-In, Smart BP Room Draw, Knowledge Matrix, and Google SSO Approvals', () => {
+describe('TrainingHub & MainOffice — Lean Club Training UI', { timeout: 15000 }, () => {
+  it('renders Room Draw, Positions & Matrix, and Club Roster with unified top navigation', () => {
     render(
       <MemoryRouter initialEntries={['/training']}>
         <Routes>
@@ -144,30 +144,23 @@ describe('TrainingHub — Club Training & Smart BP Room Draw UI', { timeout: 150
       </MemoryRouter>,
     )
 
-    expect(
-      screen.getByRole('heading', { name: 'IDC Debate — Training & Smart BP Draw' }),
-    ).toBeInTheDocument()
-
-    // Switch to Smart BP Room Draw tab
-    fireEvent.click(screen.getByRole('tab', { name: '2. Smart BP Room Draw' }))
-    expect(screen.getByText('Configure Auto-Fill Algorithm')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Club Training' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Screening Queue' })).toHaveAttribute('href', '/admin')
     expect(screen.getByText('Room A206')).toBeInTheDocument()
 
-    // Switch to Ballots & Knowledge Matrix tab
-    fireEvent.click(screen.getByRole('tab', { name: '3. Ballots & Knowledge Matrix' }))
-    expect(
-      screen.getByText('BP Position Balance & Speaks Matrix (Organizing Club Knowledge)'),
-    ).toBeInTheDocument()
+    // Switch to Positions & Matrix tab
+    fireEvent.click(screen.getByRole('tab', { name: 'Positions & Matrix' }))
+    expect(screen.getByText('BP Position Balance & Speaks Matrix')).toBeInTheDocument()
     expect(screen.getByText('Chair × Junior Exposure Matrix')).toBeInTheDocument()
 
     // Switch to Club Roster tab and approve the Pending Google SSO member
-    fireEvent.click(screen.getByRole('tab', { name: /4\. Club Roster/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Club Roster/ }))
     expect(screen.getByText(/Pending Google SSO Registrations/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '✓ Approve as Student (Junior)' }))
     expect(screen.queryByText(/Pending Google SSO Registrations/)).not.toBeInTheDocument()
   })
 
-  it('parses Coolors palette URLs and renders MainOffice homepage with training signups & clickable IDC logo', () => {
+  it('renders lean MainOffice with planned trainings, enrolled members on click, and custom training planner', () => {
     const parsed = parseCoolorsUrl(
       'https://coolors.co/palette/bee9e8-62b6cb-1b4965-cae9ff-5fa8d3',
     )
@@ -185,14 +178,22 @@ describe('TrainingHub — Club Training & Smart BP Room Draw UI', { timeout: 150
     )
 
     expect(
-      screen.getByRole('heading', { name: 'IDC Debate Society' }),
+      screen.getByRole('heading', { name: "This Week's Trainings" }),
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Return to Main Office' })).toHaveAttribute(
       'href',
       '/',
     )
-    expect(screen.getByText(/Who Signed Up for/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Screening Queue' })).toHaveAttribute(
+      'href',
+      '/admin',
+    )
+    expect(screen.getByText('Next Training')).toBeInTheDocument()
     expect(screen.getByText(/Debaters \(/)).toBeInTheDocument()
-    expect(screen.getByText(/Judges & Chairs \(/)).toBeInTheDocument()
+    expect(screen.getByText(/Judges \(/)).toBeInTheDocument()
+
+    // Click another planned training to see who enrolled in it
+    fireEvent.click(screen.getByRole('button', { name: /Wednesday English Practice/ }))
+    expect(screen.getByText('4 enrolled (3 debaters, 1 judges)')).toBeInTheDocument()
   })
 })
